@@ -1,0 +1,8 @@
+{
+  "name": "harnessup",
+  "description": "Cloud coding-agent setup from repository manifests",
+  "owner": { "name": "Lev Velykoivanenko" },
+  "plugins": [
+    { "name": "harnessup", "source": "./plugin", "description": "Prepare cloud coding-agent sessions" }
+  ]
+}

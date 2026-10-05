@@ -1,0 +1,51 @@
+#:schema https://github.com/AbysmalBiscuit/devkit/releases/latest/download/devkit-config.json
+
+[defaults]
+baseline_ref = "origin/main"
+pr_create_state = "ready"
+
+[tracker]
+kind = "linear"
+
+[harness]
+enforce_writes = true
+enforce_commands = true
+
+[tasks.sync]
+description = "Install the dev tools from uv.lock"
+run = ["uv", "sync", "--locked"]
+guard = true
+
+[tasks.lint]
+description = "Lint with ruff"
+run = ["uv", "run", "ruff", "check"]
+guard = true
+
+[tasks.fmt]
+description = "Format with ruff"
+run = ["uv", "run", "ruff", "format"]
+guard = true
+
+[tasks.fmt-check]
+description = "Check formatting with ruff"
+run = ["uv", "run", "ruff", "format", "--check"]
+guard = true
+
+[tasks.typecheck]
+description = "Type check with pyrefly"
+run = ["uv", "run", "pyrefly", "check"]
+guard = true
+
+[tasks.test]
+description = "Run the test suite with pytest"
+run = ["uv", "run", "pytest"]
+guard = true
+
+[tasks.verify]
+description = "Lint, check formatting and types, and test"
+steps = [
+    { task = "lint" },
+    { task = "fmt-check" },
+    { task = "typecheck" },
+    { task = "test" },
+]
