@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "harnessup session-start --harness codex", "timeout": 30, "async": false }] }
+    ]
+  }
+}
