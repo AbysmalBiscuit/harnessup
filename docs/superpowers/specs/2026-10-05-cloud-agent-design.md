@@ -6,7 +6,7 @@
 
 ## Goal
 
-Every cloud session starts already steered: the harnesses (devkit, mcpls, agent-guard, testplan, and whatever comes next) are installed and active before the agent reads its task, with no step done by hand.
+Every cloud session starts already steered: the harnesses (devkit, mcpls, agent-guard, and whatever comes next) are installed and active before the agent reads its task, with no step done by hand.
 
 The devkit prototype does this by bundling scripts, templates, and hook settings inside each repository's `.agents/` directory. cloud-agent extracts the mechanism into one installable tool. A repository then carries only a manifest and its own content.
 
@@ -14,8 +14,10 @@ The devkit prototype does this by bundling scripts, templates, and hook settings
 
 - A cloud environment's setup script is two lines that never change per repository.
 - A repository opts in by committing `.agents/cloud-agent/manifest.toml` and the files it references.
-- A fresh cloud session in the adaptyv monorepo starts with every manifest plugin loaded, its binaries on PATH, its files in place, and its startup context injected (the SWE-12480 done-when).
+- A fresh cloud session in a repository with a manifest starts with every manifest plugin loaded, its binaries on PATH, its files in place, and its startup context injected. devkit, dogfooding it, is the first such repository.
 - The same package works as a Claude Code plugin and ships a Codex plugin.
+
+This spec covers the framework only. Adopting it in the adaptyv monorepo (SWE-12480) follows separately, with its own manifest and content.
 
 ### Ownership
 
@@ -41,7 +43,7 @@ Measured with a probe session in an Anthropic-hosted Claude cloud environment (b
 
 From the Claude Code docs: the setup script must exit 0 or the session fails to start; a setup finishing within roughly five minutes is snapshotted and reused, skipping the setup script for later sessions until the script or network settings change or the cache expires; SessionStart hooks run on every session, including resumed ones.
 
-Not yet measured: whether a session started from a cached snapshot re-clones the repository or reuses the snapshot's checkout. The design holds either way (per-session work runs at SessionStart), and the SWE-12480 acceptance run measures it.
+Not yet measured: whether a session started from a cached snapshot re-clones the repository or reuses the snapshot's checkout. The design holds either way (per-session work runs at SessionStart), and the acceptance run measures it.
 
 ## Architecture
 
@@ -98,9 +100,9 @@ bootstrap = "hooks/bootstrap-binaries"
 id = "agent-guard@agent-guard"
 
 [[tool]]
-name = "testplan"
-install = "uv tool install git+https://github.com/adaptyv-bio/agent_pr_testing"
-check = "testplan --help"
+name = "shellcheck"
+install = "apt-get install -y shellcheck"
+check = "shellcheck --version"
 
 [[file]]
 source = "AGENTS.local.md"
@@ -183,7 +185,7 @@ Written to `$XDG_STATE_HOME/cloud-agent/setup.json` (default `~/.local/state`):
   "finished_at": "2026-10-05T09:54:15Z",
   "repos": [
     {
-      "root": "/home/user/adaptyv",
+      "root": "/home/user/devkit",
       "manifest_error": null,
       "items": [
         {"kind": "plugin", "name": "devkit@devkit", "harness": "claude", "status": "ok", "detail": ""},
@@ -318,14 +320,15 @@ release-please, as in devkit:
 
 ### Acceptance
 
-Manual, in a real cloud environment: a fresh session, then a second session from the cached snapshot. Proof is `setup.json`, the injected startup context, and `claude plugin list`. The second session also records whether the checkout was re-cloned.
+Manual, in a real cloud environment on devkit's dogfood manifest: a fresh session, then a second session from the cached snapshot. Proof is `setup.json`, the injected startup context, and `claude plugin list`. The second session also records whether the checkout was re-cloned.
 
 ## Rollout
 
 1. **cloud-agent v0.1.0** (SWE-12024): implement this spec, merge with CI green, release. The README documents the setup script and the manifest. Then delete the `cloud-probe` branch and the probe environment.
-2. **commit-patch moves into devkit** (a devkit issue): `git-commit-patch.py` backs devkit's `commit-patch` task and belongs with devkit. cloud-agent does not depend on it.
-3. **devkit dogfoods cloud-agent**: replace `.agents/skills/cloud/` with `.agents/cloud-agent/` (manifest, `AGENTS.local.md`, `devkit.local.toml`, `startup.md`, `recovery.md`, `skills/cloud/`); remove the cloud SessionStart and Setup hooks from devkit's `.claude/settings.json` and the `cloud` CI job. Verify with a fresh devkit cloud session.
-4. **Monorepo** (SWE-12480): commit `.agents/cloud-agent/` with devkit, mcpls, agent-guard and superpowers plugins, the testplan tool, and the content files; set the environment's setup script; run the acceptance check.
+2. **commit-patch moves into devkit** (a devkit issue): `git-commit-patch.py` backs devkit's `commit-patch` task and belongs with devkit. It keeps the prototype's form, a helper the `commit-patch` task runs with `--patch` and `--message`, so existing `devkit.local.toml` task definitions keep working. cloud-agent does not depend on it.
+3. **devkit dogfoods cloud-agent**: replace `.agents/skills/cloud/` with `.agents/cloud-agent/` (manifest, `AGENTS.local.md`, `devkit.local.toml`, `startup.md`, `recovery.md`, `skills/cloud/`); remove the cloud SessionStart and Setup hooks from devkit's `.claude/settings.json` and the `cloud` CI job. Verify with the acceptance check.
+
+Monorepo adoption (SWE-12480), including its shared cloud environment, comes after this rollout and is not part of this spec.
 
 ## Dropped from the prototype
 
@@ -351,10 +354,3 @@ Manual, in a real cloud environment: a fresh session, then a second session from
 - Codex skips plugin hooks until a person trusts them (agent-guard's README), which may stop cloud-agent's Codex hook from running in an unattended cloud session.
 - Whether Codex follows symlinked skill directories is unverified.
 - Locating an installed plugin's root through the Codex CLI is unverified; a plugin installed only for Codex may have its bootstrap skipped until this is known.
-- testplan installs from a private repository. Whether `uv tool install git+https://github.com/<private>` authenticates through the cloud GitHub proxy is untested.
-
-## Unresolved questions
-
-1. What form does commit-patch take in devkit: a built-in subcommand, or the Python helper shipped in devkit's plugin? Until it ships, the monorepo's `devkit.local.toml` either drops the `commit-patch` task or carries the helper as a repository file.
-2. Who creates the org-shared cloud environment for the monorepo, so sessions other people start are bootstrapped too?
-3. If the private testplan install fails in setup, is testplan published, or is a deploy token stored in an environment variable?
