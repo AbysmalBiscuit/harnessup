@@ -580,13 +580,13 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path   # retu
 - Per repository, spec "Commands > setup" steps 1 to 5, items in this order:
   1. `marketplace` items. A `path` source is passed as `str((root / source).resolve())`, and every marketplace subprocess runs with `cwd=root`.
   2. `plugin` items.
-  3. `bootstrap` items, one per plugin with a bootstrap. The root comes from Claude's `installed` when the plugin was installed for Claude, else from Codex's. argv[0] is joined to the root, then run with `cwd=root_of_plugin` and `env={"HARNESSUP_SETUP": "1"}`, and retried once on failure. The item's `harness` is the one whose root was used. A plugin with no `ok` install item gets `skipped` with detail `plugin failed to install`; no root found gets `failed` with detail `plugin root not found`.
+  3. `bootstrap` items, one per plugin with a bootstrap. The root comes from Claude's `installed` when the plugin was installed for Claude, else from Codex's. argv[0] is joined to the root, then run with `cwd=root_of_plugin` and `XDG_STATE_HOME` pointing at a fresh copy of the real state directory. A successful attempt replaces the real state with its copy; a failed attempt discards it and retries once with a new copy. The item's `harness` is the one whose root was used. A plugin with no `ok` install item gets `skipped` with detail `plugin failed to install`; no root found gets `failed` with detail `plugin root not found`.
   4. `tool` items: `check` under `CHECK_TIMEOUT_S`, then `install` under `INSTALL_TIMEOUT_S` when the check fails, both via `sh -c` from the repo root; `ok` with detail `already installed` when the check passes.
   5. `session.prepare(root, manifest)`, which runs regardless of the deadline.
 - Each item: a harness not `available()` gives `skipped` with detail `<binary> not on PATH`. An expired deadline gives `skipped` with detail `setup deadline`. Otherwise the timeout is `deadline.clamp(...)`, and status `ok`/`failed` follows `Outcome.ok`, with detail `Outcome.output` on success and `Outcome.describe()` on failure.
 - An invalid manifest gives `RepoReport(manifest_error=str(err))` and no items.
 
-- [ ] **Step 1: Write the failing tests** in `tests/test_setup.py`, using the stub fixture plus a fake plugin directory `tmp_path / "plugins/devkit"`. Its `hooks/bootstrap-binaries` script appends `"$@ HARNESSUP_SETUP=$HARNESSUP_SETUP"` to a log; the stub `claude` lists it as `installPath`.
+- [ ] **Step 1: Write the failing tests** in `tests/test_setup.py`, using the stub fixture plus a fake plugin directory `tmp_path / "plugins/devkit"`. Its `hooks/bootstrap-binaries` script appends its arguments to a log; the stub `claude` lists it as `installPath`. Bootstrap state tests read existing stamps, write new state, and verify that only successful attempts persist changes.
 
 ```python
 def test_registers_own_plugin_then_repo_items(...):
@@ -594,7 +594,7 @@ def test_registers_own_plugin_then_repo_items(...):
     assert calls[0] == ["plugin", "marketplace", "add", str(MARKETPLACE_DIR)]
     assert calls[1] == ["plugin", "install", "harnessup@harnessup", "--scope", "user"]
     assert ["plugin", "install", "devkit@devkit", "--scope", "user"] in calls
-def test_bootstrap_runs_with_args_and_env(...): ...          # log == "claude-code HARNESSUP_SETUP=1"
+def test_bootstrap_runs_with_args(...): ...                  # log == "claude-code"
 def test_bootstrap_retried_once(...): ...                     # bootstrap fails first run, succeeds second -> item ok, log has 2 lines
 def test_bootstrap_skipped_when_install_failed(...): ...      # stub fail=["devkit@devkit"] -> bootstrap item skipped "plugin failed to install"
 def test_codex_absent_is_skipped(...): ...                    # no codex stub -> codex items skipped "codex not on PATH"
@@ -623,7 +623,7 @@ def test_exit_0_when_everything_fails(...): ...               # stub fail on eve
 
 - [ ] **Step 2: Write `release-please.yml`** on `push: branches: [main]`, `permissions: contents: write, pull-requests: write`, `concurrency: { group: release-please, cancel-in-progress: false }`, and one job with `timeout-minutes: 5` running `googleapis/release-please-action@v5` with `token: ${{ secrets.RELEASE_PLEASE_TOKEN }}` and `config-file`/`manifest-file`. The token is a fine-grained PAT (contents and pull requests write), so the release PR triggers CI; `GITHUB_TOKEN` pushes do not.
 
-- [ ] **Step 3: Rewrite `README.md`**: one-paragraph purpose; the setup script; the manifest location, the spec's example manifest and its fields table; cloud-only skills; what `setup.json` holds and where; a "Plugin bootstraps" note stating the `HARNESSUP_SETUP=1` contract. The setup script is:
+- [ ] **Step 3: Rewrite `README.md`**: one-paragraph purpose; the setup script; the manifest location, the spec's example manifest and its fields table; cloud-only skills; what `setup.json` holds and where; a "Plugin bootstraps" note describing state isolation for each attempt and persistence only on success. The setup script is:
 
 ```sh
 uv tool install git+https://github.com/AbysmalBiscuit/harnessup
@@ -640,7 +640,7 @@ harnessup setup
 
 ## Outside this plan (spec Rollout)
 
-- Rollout 1 (devkit and mcpls `bootstrap-binaries` honour `HARNESSUP_SETUP`, devkit bootstrap emits `additionalContext`) are changes in other repositories. They must land before the acceptance run. harnessup's own code and tests do not depend on them.
+- Rollout 1 (devkit bootstrap emits `additionalContext`) is a change in another repository. It must land before the acceptance run. harnessup's own code and tests do not depend on it.
 - Rollout 3 and 4 (commit-patch into devkit, devkit dogfood), the acceptance run in a real cloud environment, and deleting `cloud-probe` follow v0.1.0.
 
 ## Unresolved questions

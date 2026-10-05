@@ -117,7 +117,7 @@ Session start reports failures and deadline skips for its repository, checks dec
 
 ## Plugin bootstraps
 
-A plugin owns version matching and binary installation. harnessup runs its declared bootstrap from the installed plugin root with `HARNESSUP_SETUP=1`, retrying once after failure. Under this environment variable, a bootstrap must report failure without writing a sticky failure stamp. Otherwise a failed install captured in a cloud snapshot could disable the plugin's own SessionStart retries. The plugin's normal hook remains responsible for retries after setup.
+A plugin owns version matching and binary installation. harnessup runs its declared bootstrap from the installed plugin root, retrying once after failure. Each attempt runs with `XDG_STATE_HOME` pointed at a fresh copy of the real state directory, so the bootstrap can read existing version stamps. A successful attempt replaces the real state with its copy; a failed attempt discards its copy. Failure stamps from setup therefore cannot disable the plugin's own SessionStart retries in a cloud snapshot. The plugin's normal hook remains responsible for retries after setup.
 
 ## Commit a patch
 
