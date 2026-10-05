@@ -12,9 +12,7 @@ def setup_cli(repo, write_manifest, run_cli, stub, tmp_path, state_dir):
     (plugin / "hooks").mkdir(parents=True)
     log = plugin / "bootstrap.log"
     bootstrap = plugin / "hooks/bootstrap-binaries"
-    bootstrap.write_text(
-        f'#!/bin/sh\nprintf "%s HARNESSUP_SETUP=%s\\n" "$*" "$HARNESSUP_SETUP" >> "{log}"\n'
-    )
+    bootstrap.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\n')
     bootstrap.chmod(0o755)
     write_manifest(
         repo,
@@ -46,10 +44,10 @@ def test_registers_own_plugin_then_repo_items(setup_cli, stub_calls):
     assert ["plugin", "install", "devkit@devkit", "--scope", "user"] in calls
 
 
-def test_bootstrap_runs_with_args_and_env(setup_cli):
+def test_bootstrap_runs_with_args(setup_cli):
     invoke, _, log = setup_cli
     invoke()
-    assert log.read_text().strip() == "claude-code HARNESSUP_SETUP=1"
+    assert log.read_text().strip() == "claude-code"
 
 
 def test_bootstrap_retried_once(setup_cli):
@@ -62,6 +60,69 @@ def test_bootstrap_retried_once(setup_cli):
     )
     assert item["status"] == "ok"
     assert len(log.read_text().splitlines()) == 2
+
+
+def test_failed_bootstrap_discards_state(setup_cli, state_dir):
+    invoke, plugin, log = setup_cli
+    plugin_state = state_dir.parent / "devkit"
+    plugin_state.mkdir(parents=True)
+    (plugin_state / "bootstrap-version").write_text("existing-version")
+    (plugin_state / "keep").write_text("existing-state")
+    bootstrap = plugin / "hooks/bootstrap-binaries"
+    bootstrap.write_text(
+        bootstrap.read_text()
+        + 'state="$XDG_STATE_HOME/devkit"\n'
+        + 'cat "$state/bootstrap-version"\n'
+        + 'test ! -e "$state/bootstrap-failed" || echo "dirty retry"\n'
+        + 'printf "failed" > "$state/bootstrap-failed"\n'
+        + 'printf "changed" > "$state/bootstrap-version"\n'
+        + 'rm "$state/keep"\n'
+        + "exit 1\n"
+    )
+
+    _, report = invoke()
+
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == "failed"
+    assert len(log.read_text().splitlines()) == 2
+    assert item["detail"] == "exit 1: existing-version"
+    assert {path.name: path.read_text() for path in plugin_state.iterdir()} == {
+        "bootstrap-version": "existing-version",
+        "keep": "existing-state",
+    }
+
+
+def test_successful_bootstrap_keeps_state(setup_cli, state_dir):
+    invoke, plugin, _ = setup_cli
+    plugin_state = state_dir.parent / "devkit"
+    plugin_state.mkdir(parents=True)
+    (plugin_state / "bootstrap-version").write_text("existing-version")
+    (plugin_state / "bootstrap-failed").write_text("stale-failure")
+    unrelated_state = state_dir.parent / "other-app"
+    unrelated_state.mkdir()
+    (unrelated_state / "keep").write_text("unrelated-state")
+    bootstrap = plugin / "hooks/bootstrap-binaries"
+    bootstrap.write_text(
+        bootstrap.read_text()
+        + 'state="$XDG_STATE_HOME/devkit"\n'
+        + 'cp "$state/bootstrap-version" "$state/read-version"\n'
+        + 'printf "installed" > "$state/bootstrap-version"\n'
+        + 'rm "$state/bootstrap-failed"\n'
+    )
+
+    _, report = invoke()
+
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == "ok"
+    assert {path.name: path.read_text() for path in plugin_state.iterdir()} == {
+        "bootstrap-version": "installed",
+        "read-version": "existing-version",
+    }
+    assert (unrelated_state / "keep").read_text() == "unrelated-state"
 
 
 def test_bootstrap_skipped_when_install_failed(setup_cli, stub):

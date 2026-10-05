@@ -1,13 +1,15 @@
 from collections.abc import Mapping, Sequence
 from importlib.metadata import version
 from pathlib import Path
+from shutil import copytree, move, rmtree
+from tempfile import TemporaryDirectory
 
 from harnessup import MARKETPLACE_DIR
 from harnessup.harness import CLIS
 from harnessup.manifest import MANIFEST_FILE, Harness, ManifestError, load, source_kind
 from harnessup.proc import Deadline, run
 from harnessup.session import prepare
-from harnessup.state import Item, RepoReport, write_report
+from harnessup.state import Item, RepoReport, state_dir, write_report
 
 DEADLINE_S = 200.0
 INSTALL_TIMEOUT_S = 120.0
@@ -48,6 +50,37 @@ def _execute(
         "ok" if outcome.ok else "failed",
         outcome.output if outcome.ok else outcome.describe(),
     )
+
+
+def _bootstrap(
+    name: str,
+    harness: Harness,
+    argv: Sequence[str],
+    cwd: Path,
+    deadline: Deadline,
+) -> Item:
+    real_state = state_dir().parent
+    with TemporaryDirectory(prefix="harnessup-bootstrap-") as temporary:
+        scratch_state = Path(temporary) / "state"
+        if real_state.exists():
+            copytree(real_state, scratch_state)
+        else:
+            scratch_state.mkdir()
+        item = _execute(
+            "bootstrap",
+            name,
+            harness,
+            argv,
+            cwd,
+            deadline,
+            env={"XDG_STATE_HOME": str(scratch_state)},
+        )
+        if item.status == "ok":
+            if real_state.exists():
+                rmtree(real_state)
+            real_state.parent.mkdir(parents=True, exist_ok=True)
+            move(scratch_state, real_state)
+        return item
 
 
 def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
@@ -165,25 +198,9 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
                 )
                 continue
             argv = [str(plugin_root / plugin.bootstrap[0]), *plugin.bootstrap[1:]]
-            item = _execute(
-                "bootstrap",
-                plugin.id,
-                harness,
-                argv,
-                plugin_root,
-                deadline,
-                env={"HARNESSUP_SETUP": "1"},
-            )
+            item = _bootstrap(plugin.id, harness, argv, plugin_root, deadline)
             if item.status == "failed":
-                item = _execute(
-                    "bootstrap",
-                    plugin.id,
-                    harness,
-                    argv,
-                    plugin_root,
-                    deadline,
-                    env={"HARNESSUP_SETUP": "1"},
-                )
+                item = _bootstrap(plugin.id, harness, argv, plugin_root, deadline)
             report.items.append(item)
         for tool in manifest.tools:
             item = _execute(
