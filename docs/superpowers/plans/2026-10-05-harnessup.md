@@ -621,7 +621,7 @@ def test_exit_0_when_everything_fails(...): ...               # stub fail on eve
 
 - [ ] **Step 1: Write `release-please-config.json`** with `$schema` as in devkit, `include-component-in-tag: false`, and `packages["."]`: `release-type: python`, `package-name: harnessup`, `bump-minor-pre-major: true`, `bump-patch-for-minor-pre-major: true`, `extra-files` of type `json` with `jsonpath: "$.version"` for `src/harnessup/marketplace/plugin/.claude-plugin/plugin.json` and `src/harnessup/marketplace/plugin/.codex-plugin/plugin.json`. `.release-please-manifest.json`: `{".": "0.1.0"}`.
 
-- [ ] **Step 2: Write `release-please.yml`** on `push: branches: [main]`, `permissions: contents: write, pull-requests: write`, `concurrency: { group: release-please, cancel-in-progress: false }`, and one job with `timeout-minutes: 5` running `googleapis/release-please-action@v5` with `config-file`/`manifest-file`. It uses the default `GITHUB_TOKEN`: no workflow is triggered by the tag, so devkit's PAT is not needed.
+- [ ] **Step 2: Write `release-please.yml`** on `push: branches: [main]`, `permissions: contents: write, pull-requests: write`, `concurrency: { group: release-please, cancel-in-progress: false }`, and one job with `timeout-minutes: 5` running `googleapis/release-please-action@v5` with `token: ${{ secrets.RELEASE_PLEASE_TOKEN }}` and `config-file`/`manifest-file`. The token is a fine-grained PAT (contents and pull requests write), so the release PR triggers CI; `GITHUB_TOKEN` pushes do not.
 
 - [ ] **Step 3: Rewrite `README.md`**: one-paragraph purpose; the setup script; the manifest location, the spec's example manifest and its fields table; cloud-only skills; what `setup.json` holds and where; a "Plugin bootstraps" note stating the `HARNESSUP_SETUP=1` contract. The setup script is:
 
@@ -647,4 +647,3 @@ harnessup setup
 
 1. Codex SessionStart payload shape is unverified; the plan treats a missing `source` as `startup` and a missing `cwd` as the process cwd. Acceptable until a Codex cloud run?
 2. The `--deadline` flag on `setup` is not in the spec; it exists for tests. Keep it public, or hide it with `argparse.SUPPRESS`?
-3. release-please uses `GITHUB_TOKEN`, so the release PR's CI will not trigger automatically. That is fine for a project with no tag-triggered workflow, but do you want devkit's `RELEASE_PLEASE_TOKEN` PAT here so the release PR gets CI?
