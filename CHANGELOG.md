@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2](https://github.com/AbysmalBiscuit/harnessup/compare/v0.1.1...v0.1.2) (2026-10-05)
+
+
+### Features
+
+* ship commit-patch command ([#3](https://github.com/AbysmalBiscuit/harnessup/issues/3)) ([e26ac5e](https://github.com/AbysmalBiscuit/harnessup/commit/e26ac5ebb845296b6e604f268bb3d9a882dafb74))
+
+
+### Bug Fixes
+
+* keep bootstrap state only on success ([#5](https://github.com/AbysmalBiscuit/harnessup/issues/5)) ([327434a](https://github.com/AbysmalBiscuit/harnessup/commit/327434a16f4d3877e5ccaecbdb20a1a8398ff86b))
+
 ## [0.1.1](https://github.com/AbysmalBiscuit/harnessup/compare/v0.1.0...v0.1.1) (2026-10-05)
 
 

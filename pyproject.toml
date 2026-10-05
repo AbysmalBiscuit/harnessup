@@ -1,6 +1,6 @@
 [project]
 name = "harnessup"
-version = "0.1.1"
+version = "0.1.2"
 description = "Bootstraps coding-agent harnesses in cloud sandboxes from a repository manifest"
 readme = "README.md"
 requires-python = ">=3.11"
