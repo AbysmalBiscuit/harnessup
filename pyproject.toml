@@ -1,7 +1,7 @@
 [project]
-name = "cloud-agent"
+name = "harnessup"
 version = "0.1.0"
-description = "Add your description here"
+description = "Bootstraps coding-agent harnesses in cloud sandboxes from a repository manifest"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = []

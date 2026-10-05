@@ -1,4 +1,4 @@
-# cloud-agent design
+# harnessup design
 
 - Issues: [SWE-12024](https://linear.app/adaptyv-bio/issue/SWE-12024/package-cloud-agent-bootstrapping-framework) (this framework), [SWE-12480](https://linear.app/adaptyv-bio/issue/SWE-12480/install-cloud-agent-in-the-cloud-container) (monorepo install), parent [SWE-12018](https://linear.app/adaptyv-bio/issue/SWE-12018/bootstrap-cloud-agent-sandbox-with-the-harnesses)
 - Prototype: `AbysmalBiscuit/devkit`, `.agents/skills/cloud/`
@@ -8,12 +8,12 @@
 
 Every cloud session starts already steered: the harnesses (devkit, mcpls, agent-guard, and whatever comes next) are installed and active before the agent reads its task, with no step done by hand.
 
-The devkit prototype does this by bundling scripts, templates, and hook settings inside each repository's `.agents/` directory. cloud-agent extracts the mechanism into one installable tool. A repository then carries only a manifest and its own content.
+The devkit prototype does this by bundling scripts, templates, and hook settings inside each repository's `.agents/` directory. harnessup extracts the mechanism into one installable tool. A repository then carries only a manifest and its own content.
 
 ### Success criteria
 
 - A cloud environment's setup script is two lines that never change per repository.
-- A repository opts in by committing `.agents/cloud-agent/manifest.toml` and the files it references.
+- A repository opts in by committing `.agents/harnessup/manifest.toml` and the files it references.
 - A fresh cloud session in a repository with a manifest starts with every manifest plugin loaded, its binaries on PATH, its files in place, and its startup context injected. devkit, dogfooding it, is the first such repository.
 - The same package works as a Claude Code plugin and ships a Codex plugin.
 
@@ -21,11 +21,11 @@ This spec covers the framework only. Adopting it in the adaptyv monorepo (SWE-12
 
 ### Ownership
 
-cloud-agent is pure mechanism. It installs, copies, links, and prints. All content (standing rules, workflow skill, recovery text, devkit config, settings) belongs to the repository.
+harnessup is pure mechanism. It installs, copies, links, and prints. All content (standing rules, workflow skill, recovery text, devkit config, settings) belongs to the repository.
 
 ## Environment facts
 
-Measured with a probe session in an Anthropic-hosted Claude cloud environment (branch `cloud-probe` of this repository) on 2026-10-05. The design depends on each of these.
+Measured with a probe session in an Anthropic-hosted Claude cloud environment (branch `cloud-probe` of this repository, then named `cloud-agent`) on 2026-10-05. The design depends on each of these.
 
 | Fact | Evidence |
 | :- | :- |
@@ -49,29 +49,29 @@ Not yet measured: whether a session started from a cached snapshot re-clones the
 
 ```
 cloud environment setup script
-  uv tool install git+https://github.com/AbysmalBiscuit/cloud-agent[@vX.Y.Z]
-  cloud-agent setup
-      |- registers cloud-agent's own plugin (directory marketplace inside the installed package)
+  uv tool install git+https://github.com/AbysmalBiscuit/harnessup[@vX.Y.Z]
+  harnessup setup
+      |- registers harnessup's own plugin (directory marketplace inside the installed package)
       |- adds manifest marketplaces, installs manifest plugins (per harness)
       |- runs each plugin's own bootstrap script (binaries, version-matched by the plugin)
       |- runs manifest tool installs whose check fails
       |- does the per-session work (below)
       `- records every item's result in setup.json, exits 0
 
-Claude Code / Codex launches, then the cloud-agent plugin's SessionStart hook runs
-  cloud-agent session-start --harness claude|codex
+Claude Code / Codex launches, then the harnessup plugin's SessionStart hook runs
+  harnessup session-start --harness claude|codex
       |- copies [[file]] entries, writes .claude/settings.local.json
       |- links cloud-only skills, rewrites the .git/info/exclude block
       `- prints startup or recovery context, task-tool line, problems
 ```
 
-Version matching between a plugin and its binaries is the plugin's job. devkit and mcpls each ship `hooks/bootstrap-binaries`, which reads the plugin's own `plugin.json` version, installs the matching release, writes a `bootstrap-version` stamp under `$XDG_STATE_HOME/<app>/`, and upgrades when the plugin version moves. cloud-agent runs that script during setup so the binaries exist before the first session's MCP servers start; afterwards the plugin's own SessionStart hook keeps them current.
+Version matching between a plugin and its binaries is the plugin's job. devkit and mcpls each ship `hooks/bootstrap-binaries`, which reads the plugin's own `plugin.json` version, installs the matching release, writes a `bootstrap-version` stamp under `$XDG_STATE_HOME/<app>/`, and upgrades when the plugin version moves. harnessup runs that script during setup so the binaries exist before the first session's MCP servers start; afterwards the plugin's own SessionStart hook keeps them current.
 
-cloud-agent's own plugin ships inside the Python package and is registered as a directory marketplace pointing into the installed package, so the hooks always run against the same version as the CLI.
+harnessup's own plugin ships inside the Python package and is registered as a directory marketplace pointing into the installed package, so the hooks always run against the same version as the CLI.
 
 ## Manifest
 
-Location: `.agents/cloud-agent/manifest.toml`. Paths in `[[file]]` sources and `[context]` are relative to `.agents/cloud-agent/`; `[[file]]` targets are relative to the repository root.
+Location: `.agents/harnessup/manifest.toml`. Paths in `[[file]]` sources and `[context]` are relative to `.agents/harnessup/`; `[[file]]` targets are relative to the repository root.
 
 ```toml
 schema = 1
@@ -134,7 +134,7 @@ recovery = "recovery.md"
 | `tool.name` | str | yes | Label for reporting |
 | `tool.install` | str | yes | Shell command, run with `sh -c` from the repository root |
 | `tool.check` | str | yes | Shell command; exit 0 means installed, so `install` is skipped |
-| `file.source` | str | yes | File under `.agents/cloud-agent/` |
+| `file.source` | str | yes | File under `.agents/harnessup/` |
 | `file.target` | str | yes | Destination under the repository root |
 | `claude.settings_local` | table | no | Written as JSON to `.claude/settings.local.json` |
 | `context.startup` | str | no | Printed on `startup` and `clear` |
@@ -142,21 +142,21 @@ recovery = "recovery.md"
 
 Validation is strict: an unknown key, an unsupported `schema`, a missing required key, a wrong type, a plugin id whose marketplace is not declared, or a path that is absolute or contains `..` is an error naming the key path. A harness absent from the machine is not an error; its items are skipped.
 
-Plugins, binaries, tools, and settings are declared only here. cloud-agent does not read the repository's `.claude/settings.json`.
+Plugins, binaries, tools, and settings are declared only here. harnessup does not read the repository's `.claude/settings.json`.
 
 ### Cloud-only skills
 
-Each directory under `.agents/cloud-agent/skills/` is a skill (`<name>/SKILL.md`). These need no manifest entry.
+Each directory under `.agents/harnessup/skills/` is a skill (`<name>/SKILL.md`). These need no manifest entry.
 
 ## Commands
 
-### `cloud-agent setup [--repo PATH]...`
+### `harnessup setup [--repo PATH]...`
 
 Runs in the environment's setup script. Ungated: it only ever runs where it was put.
 
-Repository discovery: each `--repo`; with none, the cwd when it contains `.agents/cloud-agent/manifest.toml`; otherwise every direct child of the cwd that does. Several repositories are processed in turn.
+Repository discovery: each `--repo`; with none, the cwd when it contains `.agents/harnessup/manifest.toml`; otherwise every direct child of the cwd that does. Several repositories are processed in turn.
 
-First, once: register cloud-agent's own marketplace (the package's `marketplace/` directory) with each harness CLI on PATH, and install the `cloud-agent` plugin at user scope.
+First, once: register harnessup's own marketplace (the package's `marketplace/` directory) with each harness CLI on PATH, and install the `harnessup` plugin at user scope.
 
 Then per repository, in order:
 
@@ -177,11 +177,11 @@ Harness CLI commands:
 
 #### `setup.json`
 
-Written to `$XDG_STATE_HOME/cloud-agent/setup.json` (default `~/.local/state`):
+Written to `$XDG_STATE_HOME/harnessup/setup.json` (default `~/.local/state`):
 
 ```json
 {
-  "cloud_agent_version": "0.1.0",
+  "harnessup_version": "0.1.0",
   "finished_at": "2026-10-05T09:54:15Z",
   "repos": [
     {
@@ -199,9 +199,9 @@ Written to `$XDG_STATE_HOME/cloud-agent/setup.json` (default `~/.local/state`):
 
 `status` is `ok`, `skipped`, or `failed`; `detail` holds the last lines of output for a failure.
 
-### `cloud-agent session-start --harness claude|codex`
+### `harnessup session-start --harness claude|codex`
 
-The cloud-agent plugin's SessionStart hook: `cloud-agent session-start --harness claude` in `hooks/hooks.json`, `--harness codex` in `hooks/hooks-codex.json`, timeout 10 s. It reads the hook JSON from stdin and takes `source` from it.
+The harnessup plugin's SessionStart hook: `harnessup session-start --harness claude` in `hooks/hooks.json`, `--harness codex` in `hooks/hooks-codex.json`, timeout 10 s. It reads the hook JSON from stdin and takes `source` from it.
 
 Gate: it does nothing unless `CLOUD_AGENT=true` or `CLAUDE_CODE_REMOTE=true`.
 
@@ -228,12 +228,12 @@ Task-tool lines:
 
 #### Skill links
 
-For a skill `.agents/cloud-agent/skills/<name>/`:
+For a skill `.agents/harnessup/skills/<name>/`:
 
 1. Candidate directories are `.claude/skills/` (Claude) and `.agents/skills/` (Codex), always both.
 2. Resolve each candidate with `realpath`, creating it as a plain directory when missing, and drop duplicates. A repository whose `.claude/skills` symlinks to `.agents/skills` gets one directory; one with separate directories gets two.
-3. In each resolved directory, create `<name>` as a relative symlink to the skill's source directory, replacing a previous cloud-agent link.
-4. When `<name>` in that directory is tracked by git, or is a file or directory cloud-agent did not create, skip it and report the collision. A tracked skill is never shadowed.
+3. In each resolved directory, create `<name>` as a relative symlink to the skill's source directory, replacing a previous harnessup link.
+4. When `<name>` in that directory is tracked by git, or is a file or directory harnessup did not create, skip it and report the collision. A tracked skill is never shadowed.
 
 Symlinks rather than copies: Claude Code follows symlinked skill directories (documented), so there is one source and nothing goes stale.
 
@@ -242,12 +242,12 @@ Symlinks rather than copies: Claude Code follows symlinked skill directories (do
 Generated paths are ignored through `.git/info/exclude`, resolved with `git rev-parse --git-path info/exclude`, not through the tracked `.gitignore`: editing `.gitignore` would leave a modified tracked file in every session for an agent to commit. The exclude file lives in the common git directory, so it also covers worktrees.
 
 ```
-# >>> cloud-agent (generated; rewritten every session)
+# >>> harnessup (generated; rewritten every session)
 /AGENTS.local.md
 /devkit.local.toml
 /.claude/settings.local.json
 /.agents/skills/cloud
-# <<< cloud-agent
+# <<< harnessup
 ```
 
 Entries are every `[[file]]` target, `.claude/settings.local.json` when written, and each skill link path inside the repository. The block is replaced in place on every run; lines outside it are preserved; a missing block is appended.
@@ -255,9 +255,9 @@ Entries are every `[[file]]` target, `.claude/settings.local.json` when written,
 ## Package layout
 
 ```
-AbysmalBiscuit/cloud-agent
+AbysmalBiscuit/harnessup
 |- pyproject.toml
-|- src/cloud_agent/
+|- src/harnessup/
 |  |- cli.py                 # argparse entry point: setup, session-start
 |  |- manifest.py            # TOML to frozen dataclasses; strict validation
 |  |- harness.py             # per harness: CLI commands, skill directory, task-tool line
@@ -278,8 +278,8 @@ AbysmalBiscuit/cloud-agent
 - Standard library only at runtime (`tomllib`, `json`, `subprocess`, `argparse`, `importlib.metadata`).
 - `requires-python = ">=3.11"`, the cloud image's interpreter, so the install never downloads one. `.python-version` is `3.14`; development and the primary CI target use the latest stable Python. ruff `target-version = "py311"` and pyrefly `python-version = "3.11"` reject syntax newer than the floor.
 - Build backend `uv_build`. A packaging test asserts the wheel contains the `marketplace/` dot-directories; if the backend drops them, switch to `hatchling`.
-- Entry point `cloud-agent = "cloud_agent.cli:main"`. The version comes from `importlib.metadata`.
-- Install: `uv tool install git+https://github.com/AbysmalBiscuit/cloud-agent` follows `main`; `@vX.Y.Z` pins a release. No wheel or PyPI publishing: the git install builds in under a second, and the name `cloud-agent` is likely refused by PyPI as too close to the existing `cloudagent`.
+- Entry point `harnessup = "harnessup.cli:main"`. The version comes from `importlib.metadata`.
+- Install: `uv tool install git+https://github.com/AbysmalBiscuit/harnessup` follows `main`; `@vX.Y.Z` pins a release. No wheel or PyPI publishing for now: the git install builds in under a second. The name `harnessup` is free on PyPI if publishing becomes useful.
 
 ## Errors
 
@@ -315,7 +315,7 @@ pytest, driving the real CLI entry point against temporary git repositories.
 
 release-please, as in devkit:
 
-- `release-please-config.json`: `release-type: python`, `package-name: cloud-agent`, `include-component-in-tag: false`, `bump-minor-pre-major: true`, `bump-patch-for-minor-pre-major: true` (before 1.0, a breaking change bumps minor and everything else bumps patch), and `extra-files` updating `$.version` in both `plugin.json` files.
+- `release-please-config.json`: `release-type: python`, `package-name: harnessup`, `include-component-in-tag: false`, `bump-minor-pre-major: true`, `bump-patch-for-minor-pre-major: true` (before 1.0, a breaking change bumps minor and everything else bumps patch), and `extra-files` updating `$.version` in both `plugin.json` files.
 - `.github/workflows/release-please.yml` on pushes to `main`: `googleapis/release-please-action@v5`, `timeout-minutes: 5`, `concurrency: { group: release-please, cancel-in-progress: false }`.
 
 ### Acceptance
@@ -324,9 +324,9 @@ Manual, in a real cloud environment on devkit's dogfood manifest: a fresh sessio
 
 ## Rollout
 
-1. **cloud-agent v0.1.0** (SWE-12024): implement this spec, merge with CI green, release. The README documents the setup script and the manifest. Then delete the `cloud-probe` branch and the probe environment.
-2. **commit-patch moves into devkit** (a devkit issue): `git-commit-patch.py` backs devkit's `commit-patch` task and belongs with devkit. It keeps the prototype's form, a helper the `commit-patch` task runs with `--patch` and `--message`, so existing `devkit.local.toml` task definitions keep working. cloud-agent does not depend on it.
-3. **devkit dogfoods cloud-agent**: replace `.agents/skills/cloud/` with `.agents/cloud-agent/` (manifest, `AGENTS.local.md`, `devkit.local.toml`, `startup.md`, `recovery.md`, `skills/cloud/`); remove the cloud SessionStart and Setup hooks from devkit's `.claude/settings.json` and the `cloud` CI job. Verify with the acceptance check.
+1. **harnessup v0.1.0** (SWE-12024): implement this spec, merge with CI green, release. The README documents the setup script and the manifest. Then delete the `cloud-probe` branch and the probe environment.
+2. **commit-patch moves into devkit** (a devkit issue): `git-commit-patch.py` backs devkit's `commit-patch` task and belongs with devkit. It keeps the prototype's form, a helper the `commit-patch` task runs with `--patch` and `--message`, so existing `devkit.local.toml` task definitions keep working. harnessup does not depend on it.
+3. **devkit dogfoods harnessup**: replace `.agents/skills/cloud/` with `.agents/harnessup/` (manifest, `AGENTS.local.md`, `devkit.local.toml`, `startup.md`, `recovery.md`, `skills/cloud/`); remove the cloud SessionStart and Setup hooks from devkit's `.claude/settings.json` and the `cloud` CI job. Verify with the acceptance check.
 
 Monorepo adoption (SWE-12480), including its shared cloud environment, comes after this rollout and is not part of this spec.
 
@@ -351,6 +351,6 @@ Monorepo adoption (SWE-12480), including its shared cloud environment, comes aft
 
 ## Known gaps
 
-- Codex skips plugin hooks until a person trusts them (agent-guard's README), which may stop cloud-agent's Codex hook from running in an unattended cloud session.
+- Codex skips plugin hooks until a person trusts them (agent-guard's README), which may stop harnessup's Codex hook from running in an unattended cloud session.
 - Whether Codex follows symlinked skill directories is unverified.
 - Locating an installed plugin's root through the Codex CLI is unverified; a plugin installed only for Codex may have its bootstrap skipped until this is known.
