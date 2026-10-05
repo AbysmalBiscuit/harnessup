@@ -269,6 +269,51 @@ target = "AGENTS.local.md"
     assert (repo / "AGENTS.local.md").read_text() == "rules"
 
 
+@pytest.mark.parametrize("mode", ["noop", "failed_write", "successful_write"])
+def test_bootstrap_preserves_untouched_live_links(setup_cli, state_dir, tmp_path, mode):
+    invoke, plugin, log = setup_cli
+    state_dir.parent.mkdir(parents=True)
+    external_state = tmp_path / "external-state"
+    external_state.mkdir()
+    data = external_state / "data"
+    data.write_text("original")
+    (external_state / "nested").mkdir()
+    (external_state / "nested/keep").write_text("nested-state")
+    (external_state / "inner-link").symlink_to("nested", target_is_directory=True)
+    linked_directory = state_dir.parent / "other-app"
+    linked_directory.symlink_to(external_state, target_is_directory=True)
+    linked_file = state_dir.parent / "file-link"
+    linked_file.symlink_to(data)
+    if mode != "noop":
+        bootstrap = plugin / "hooks/bootstrap-binaries"
+        bootstrap.write_text(
+            bootstrap.read_text()
+            + 'printf "modified" > "$XDG_STATE_HOME/other-app/data"\n'
+            + f'touch -r "{data}" "$XDG_STATE_HOME/other-app/data"\n'
+            + f"exit {1 if mode == 'failed_write' else 0}\n"
+        )
+
+    _, report = invoke()
+
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == ("failed" if mode == "failed_write" else "ok")
+    assert len(log.read_text().splitlines()) == (2 if mode == "failed_write" else 1)
+    assert data.read_text() == "original"
+    assert linked_file.is_symlink()
+    assert linked_file.readlink() == data
+    assert (linked_directory / "inner-link").is_symlink()
+    if mode == "successful_write":
+        assert not linked_directory.is_symlink()
+        assert (linked_directory / "data").read_text() == "modified"
+    else:
+        assert linked_directory.is_symlink()
+        assert linked_directory.readlink() == external_state
+        data.write_text("later")
+        assert (linked_directory / "data").read_text() == "later"
+
+
 def test_bootstrap_skipped_when_install_failed(setup_cli, stub):
     invoke, _, log = setup_cli
     stub("claude", fail=["devkit@devkit"])

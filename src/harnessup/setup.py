@@ -1,7 +1,8 @@
 from collections.abc import Mapping, Sequence
+from filecmp import cmp, cmpfiles, dircmp
 from importlib.metadata import version
 from pathlib import Path
-from shutil import copy2, copytree, rmtree
+from shutil import copytree, rmtree
 from tempfile import TemporaryDirectory, mkdtemp
 
 from harnessup import MARKETPLACE_DIR
@@ -84,6 +85,32 @@ def _promote_state(scratch_state: Path, real_state: Path) -> None:
         rmtree(backup_directory, ignore_errors=True)
 
 
+def _same_state(original: Path, copied: Path) -> bool:
+    if original.is_symlink() and copied.is_symlink():
+        return original.readlink() == copied.readlink()
+    if original.is_dir() and copied.is_dir():
+        comparison = dircmp(original, copied, ignore=[])
+        if comparison.left_only or comparison.right_only:
+            return False
+        _, changed, errors = cmpfiles(
+            original, copied, comparison.common_files, shallow=False
+        )
+        return (
+            not changed
+            and not errors
+            and all(
+                _same_state(original / name, copied / name)
+                for name in comparison.common_dirs + comparison.common_funny
+            )
+        )
+    return (
+        original.is_file()
+        and copied.is_file()
+        and original.stat().st_mode == copied.stat().st_mode
+        and cmp(original, copied, shallow=False)
+    )
+
+
 def _bootstrap(
     name: str,
     harness: Harness,
@@ -94,18 +121,22 @@ def _bootstrap(
     real_state = state_dir().parent.resolve()
     with TemporaryDirectory(prefix="harnessup-bootstrap-") as temporary:
         scratch_state = Path(temporary) / "state"
-        dangling_links: dict[Path, Path] = {}
+        state_links: dict[Path, tuple[Path, Path]] = {}
 
-        def copy_state_file(source: str, destination: str) -> str:
-            path = Path(source)
-            if path.is_symlink() and not path.exists():
-                dangling_links[Path(destination)] = path.readlink()
-                return destination
-            return copy2(source, destination)
+        def copy_state_links(directory: str, names: list[str]) -> list[str]:
+            ignored = []
+            for entry in names:
+                source = Path(directory) / entry
+                if source.is_symlink():
+                    destination = scratch_state / source.relative_to(real_state)
+                    state_links[destination] = (source, source.readlink())
+                    if not source.exists():
+                        ignored.append(entry)
+            return ignored
 
         try:
             if real_state.exists():
-                copytree(real_state, scratch_state, copy_function=copy_state_file)
+                copytree(real_state, scratch_state, ignore=copy_state_links)
             else:
                 scratch_state.mkdir()
         except OSError as error:
@@ -126,11 +157,22 @@ def _bootstrap(
             env={"XDG_STATE_HOME": str(scratch_state)},
         )
         if item.status == "ok":
-            # Dangling links stay absent during execution to prevent write-through.
-            for path, target in dangling_links.items():
-                if path.parent.is_dir() and not path.exists() and not path.is_symlink():
-                    path.symlink_to(target)
             try:
+                # Restore links after execution so bootstrap writes stay isolated.
+                for path, (source, target) in reversed(state_links.items()):
+                    if source.exists():
+                        if _same_state(source, path):
+                            if path.is_dir() and not path.is_symlink():
+                                rmtree(path)
+                            else:
+                                path.unlink()
+                            path.symlink_to(target)
+                    elif (
+                        path.parent.is_dir()
+                        and not path.exists()
+                        and not path.is_symlink()
+                    ):
+                        path.symlink_to(target)
                 _promote_state(scratch_state, real_state)
             except OSError as error:
                 return Item("bootstrap", name, harness, "failed", str(error))
