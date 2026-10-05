@@ -1,7 +1,8 @@
+import json
 import subprocess
 import sys
 import textwrap
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import pytest
@@ -74,3 +75,44 @@ def write_manifest() -> Callable[[Path, str], Path]:
         return path
 
     return write
+
+
+@pytest.fixture
+def stub(stub_bin: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., Path]:
+    monkeypatch.setenv(
+        "PATH", f"{stub_bin}:{Path(sys.executable).parent}:/usr/bin:/bin"
+    )
+
+    def create(
+        name: str, *, list_json: object = None, fail: Sequence[str] = ()
+    ) -> Path:
+        path = stub_bin / name
+        path.write_text(f"""#!{sys.executable}
+import json
+import sys
+from pathlib import Path
+args = sys.argv[1:]
+with Path(__file__).with_suffix(".log").open("a") as log:
+    log.write(json.dumps(args) + "\\n")
+if any(arg in {tuple(fail)!r} for arg in args):
+    sys.exit(1)
+if args == ["plugin", "list", "--json"]:
+    print(json.dumps({list_json!r}, indent=2))
+""")
+        path.chmod(0o755)
+        return path
+
+    return create
+
+
+@pytest.fixture
+def stub_calls(stub_bin: Path) -> Callable[[str], list[list[str]]]:
+    def read(name: str) -> list[list[str]]:
+        path = stub_bin / f"{name}.log"
+        return (
+            [json.loads(line) for line in path.read_text().splitlines()]
+            if path.exists()
+            else []
+        )
+
+    return read

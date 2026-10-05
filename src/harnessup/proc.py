@@ -12,6 +12,7 @@ class Outcome:
     returncode: int | None
     output: str
     error: str = ""
+    full_output: str = ""
 
     @property
     def ok(self) -> bool:
@@ -51,7 +52,9 @@ def run(
         return Outcome(None, str(error), "could not start")
     try:
         output, _ = process.communicate(timeout=timeout)
-        return Outcome(process.returncode, "\n".join(output.splitlines()[-20:]))
+        return Outcome(
+            process.returncode, "\n".join(output.splitlines()[-20:]), full_output=output
+        )
     except subprocess.TimeoutExpired:
         try:
             os.killpg(process.pid, signal.SIGKILL)
