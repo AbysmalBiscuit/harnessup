@@ -83,7 +83,7 @@ def place_files(root: Path, files: Sequence[FileEntry], owned: set[str]) -> Chan
     for entry in files:
         source = root / MANIFEST_DIR / entry.source
         target = root / entry.target
-        exclude = "/" + entry.target
+        exclude = "/" + Path(entry.target).as_posix()
         if not source.is_file():
             changes.problems.append(
                 f"missing [[file]] source {MANIFEST_DIR}/{entry.source}"

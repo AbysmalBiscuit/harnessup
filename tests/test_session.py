@@ -1,5 +1,6 @@
 import json
 import shutil
+import subprocess
 
 import pytest
 
@@ -182,3 +183,56 @@ def test_never_exits_nonzero(session_cli, repo):
     result = session_cli()
     assert result.returncode == 0
     assert result.stdout.startswith("harnessup: session-start failed:")
+
+
+@pytest.mark.parametrize(
+    ("initial", "refresh"),
+    [
+        ("./AGENTS.local.md", "AGENTS.local.md"),
+        ("AGENTS.local.md", "./AGENTS.local.md"),
+    ],
+)
+def test_equivalent_file_targets_remain_ignored_and_owned(
+    session_cli, repo, write_manifest, initial, refresh
+):
+    path = write_manifest(
+        repo,
+        f'''schema = 1
+[[file]]
+source = "rules.md"
+target = "{initial}"
+''',
+    )
+    result = session_cli()
+    assert result.returncode == 0 and "skipped" not in result.stdout
+    assert (
+        subprocess.run(
+            ["git", "-C", str(repo), "check-ignore", "--", "AGENTS.local.md"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+    assert read_exclude_block(repo) == {"/AGENTS.local.md"}
+    (path.parent / "rules.md").write_text("updated rules")
+    write_manifest(
+        repo,
+        f'''schema = 1
+[[file]]
+source = "rules.md"
+target = "{refresh}"
+''',
+    )
+    result = session_cli()
+    assert result.returncode == 0 and "skipped" not in result.stdout
+    assert (repo / "AGENTS.local.md").read_text() == "updated rules"
+    assert (
+        subprocess.run(
+            ["git", "-C", str(repo), "check-ignore", "--", "AGENTS.local.md"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).returncode
+        == 0
+    )
