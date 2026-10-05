@@ -1,6 +1,6 @@
 {
   "name": "harnessup",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Prepare cloud coding-agent sessions from repository manifests",
   "author": {
     "name": "Lev Velykoivanenko"
