@@ -59,7 +59,7 @@ def _bootstrap(
     cwd: Path,
     deadline: Deadline,
 ) -> Item:
-    real_state = state_dir().parent
+    real_state = state_dir().parent.resolve()
     with TemporaryDirectory(prefix="harnessup-bootstrap-") as temporary:
         scratch_state = Path(temporary) / "state"
         if real_state.exists():

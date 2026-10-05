@@ -94,8 +94,15 @@ def test_failed_bootstrap_discards_state(setup_cli, state_dir):
     }
 
 
-def test_successful_bootstrap_keeps_state(setup_cli, state_dir):
+@pytest.mark.parametrize("symlinked_state", [False, True])
+def test_successful_bootstrap_keeps_state(
+    setup_cli, state_dir, tmp_path, symlinked_state
+):
     invoke, plugin, _ = setup_cli
+    real_state = tmp_path / "actual-state" if symlinked_state else state_dir.parent
+    if symlinked_state:
+        real_state.mkdir()
+        state_dir.parent.symlink_to(real_state, target_is_directory=True)
     plugin_state = state_dir.parent / "devkit"
     plugin_state.mkdir(parents=True)
     (plugin_state / "bootstrap-version").write_text("existing-version")
@@ -123,6 +130,10 @@ def test_successful_bootstrap_keeps_state(setup_cli, state_dir):
         "read-version": "existing-version",
     }
     assert (unrelated_state / "keep").read_text() == "unrelated-state"
+    assert (real_state / "devkit/bootstrap-version").read_text() == "installed"
+    if symlinked_state:
+        assert state_dir.parent.is_symlink()
+        assert state_dir.parent.resolve() == real_state
 
 
 def test_bootstrap_skipped_when_install_failed(setup_cli, stub):
