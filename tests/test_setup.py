@@ -1,5 +1,6 @@
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -179,6 +180,57 @@ def test_bootstrap_handles_dangling_state_links(
     else:
         assert stamp.is_symlink()
         assert stamp.readlink() == missing_target
+
+
+def test_failed_state_promotion_preserves_existing_state(
+    setup_cli, state_dir, tmp_path, run_cli, repo
+):
+    _, plugin, log = setup_cli
+    plugin_state = state_dir.parent / "devkit"
+    plugin_state.mkdir(parents=True)
+    (plugin_state / "bootstrap-version").write_text("existing-version")
+    bootstrap = plugin / "hooks/bootstrap-binaries"
+    bootstrap.write_text(
+        bootstrap.read_text()
+        + 'printf "installed" > "$XDG_STATE_HOME/devkit/bootstrap-version"\n'
+    )
+    injection = tmp_path / "injection"
+    injection.mkdir()
+    (injection / "sitecustomize.py").write_text(f"""import os
+import shutil
+from pathlib import Path
+real_state = Path({str(state_dir.parent)!r})
+original_rename = os.rename
+original_copytree = shutil.copytree
+def rename(source, destination, *args, **kwargs):
+    if Path(destination) == real_state and Path(source).name == "state":
+        raise OSError("injected promotion failure")
+    return original_rename(source, destination, *args, **kwargs)
+def copytree(source, destination, *args, **kwargs):
+    if Path(destination) == real_state:
+        raise OSError("injected promotion failure")
+    return original_copytree(source, destination, *args, **kwargs)
+os.rename = rename
+shutil.copytree = copytree
+""")
+
+    result = run_cli(
+        "setup",
+        cwd=repo,
+        env={
+            "PYTHONPATH": f"{injection}:{Path(__file__).resolve().parents[1] / 'src'}"
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (plugin_state / "bootstrap-version").read_text() == "existing-version"
+    report = json.loads((state_dir / "setup.json").read_text())
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == "failed"
+    assert "injected promotion failure" in item["detail"]
+    assert len(log.read_text().splitlines()) == 2
 
 
 def test_bootstrap_skipped_when_install_failed(setup_cli, stub):

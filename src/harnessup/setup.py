@@ -1,8 +1,8 @@
 from collections.abc import Mapping, Sequence
 from importlib.metadata import version
 from pathlib import Path
-from shutil import copy2, copytree, move, rmtree
-from tempfile import TemporaryDirectory
+from shutil import copy2, copytree, rmtree
+from tempfile import TemporaryDirectory, mkdtemp
 
 from harnessup import MARKETPLACE_DIR
 from harnessup.harness import CLIS
@@ -52,6 +52,38 @@ def _execute(
     )
 
 
+def _promote_state(scratch_state: Path, real_state: Path) -> None:
+    real_state.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(
+        prefix="harnessup-replacement-", dir=real_state.parent
+    ) as temporary:
+        replacement = Path(temporary) / "state"
+        copytree(scratch_state, replacement, symlinks=True)
+        backup_directory = Path(
+            mkdtemp(prefix="harnessup-original-", dir=real_state.parent)
+        )
+        original = backup_directory / "original"
+        try:
+            if real_state.exists():
+                real_state.rename(original)
+            try:
+                replacement.rename(real_state)
+            except OSError as error:
+                if original.exists():
+                    try:
+                        original.rename(real_state)
+                    except OSError as rollback_error:
+                        raise OSError(
+                            f"{error}; original state retained at {original}: "
+                            f"{rollback_error}"
+                        ) from rollback_error
+                raise
+        finally:
+            if not original.exists():
+                backup_directory.rmdir()
+        rmtree(backup_directory, ignore_errors=True)
+
+
 def _bootstrap(
     name: str,
     harness: Harness,
@@ -89,10 +121,10 @@ def _bootstrap(
             for path, target in dangling_links.items():
                 if path.parent.is_dir() and not path.exists() and not path.is_symlink():
                     path.symlink_to(target)
-            if real_state.exists():
-                rmtree(real_state)
-            real_state.parent.mkdir(parents=True, exist_ok=True)
-            move(scratch_state, real_state)
+            try:
+                _promote_state(scratch_state, real_state)
+            except OSError as error:
+                return Item("bootstrap", name, harness, "failed", str(error))
         return item
 
 
