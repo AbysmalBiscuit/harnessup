@@ -1,0 +1,226 @@
+import json
+import sys
+
+import pytest
+
+from harnessup import MARKETPLACE_DIR
+
+
+@pytest.fixture
+def setup_cli(repo, write_manifest, run_cli, stub, tmp_path, state_dir):
+    plugin = tmp_path / "plugins/devkit"
+    (plugin / "hooks").mkdir(parents=True)
+    log = plugin / "bootstrap.log"
+    bootstrap = plugin / "hooks/bootstrap-binaries"
+    bootstrap.write_text(
+        f'#!/bin/sh\nprintf "%s HARNESSUP_SETUP=%s\\n" "$*" "$HARNESSUP_SETUP" >> "{log}"\n'
+    )
+    bootstrap.chmod(0o755)
+    write_manifest(
+        repo,
+        """schema = 1
+[[marketplace]]
+name = "devkit"
+source = "o/r"
+[[plugin]]
+id = "devkit@devkit"
+bootstrap = ["hooks/bootstrap-binaries", "claude-code"]
+""",
+    )
+    stub("claude", list_json=[{"id": "devkit@devkit", "installPath": str(plugin)}])
+
+    def invoke(*args, cwd=None):
+        result = run_cli("setup", *args, cwd=cwd or repo)
+        assert result.returncode == 0, result.stderr
+        return result, json.loads((state_dir / "setup.json").read_text())
+
+    return invoke, plugin, log
+
+
+def test_registers_own_plugin_then_repo_items(setup_cli, stub_calls):
+    invoke, _, _ = setup_cli
+    invoke()
+    calls = stub_calls("claude")
+    assert calls[0] == ["plugin", "marketplace", "add", str(MARKETPLACE_DIR)]
+    assert calls[1] == ["plugin", "install", "harnessup@harnessup", "--scope", "user"]
+    assert ["plugin", "install", "devkit@devkit", "--scope", "user"] in calls
+
+
+def test_bootstrap_runs_with_args_and_env(setup_cli):
+    invoke, _, log = setup_cli
+    invoke()
+    assert log.read_text().strip() == "claude-code HARNESSUP_SETUP=1"
+
+
+def test_bootstrap_retried_once(setup_cli):
+    invoke, plugin, log = setup_cli
+    bootstrap = plugin / "hooks/bootstrap-binaries"
+    bootstrap.write_text(bootstrap.read_text() + f'test "$(wc -l < "{log}")" -ge 2\n')
+    _, report = invoke()
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == "ok"
+    assert len(log.read_text().splitlines()) == 2
+
+
+def test_bootstrap_skipped_when_install_failed(setup_cli, stub):
+    invoke, _, log = setup_cli
+    stub("claude", fail=["devkit@devkit"])
+    _, report = invoke()
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == "skipped" and item["detail"] == "plugin failed to install"
+    assert not log.exists()
+
+
+def test_codex_absent_is_skipped(setup_cli):
+    invoke, _, _ = setup_cli
+    _, report = invoke()
+    items = [item for item in report["repos"][0]["items"] if item["harness"] == "codex"]
+    assert items and all(
+        item["status"] == "skipped" and item["detail"] == "codex not on PATH"
+        for item in items
+    )
+
+
+def test_tool_install_only_when_check_fails(setup_cli, repo, write_manifest):
+    invoke, _, _ = setup_cli
+    write_manifest(
+        repo,
+        """schema = 1
+[[tool]]
+name = "present"
+check = "exit 0"
+install = "touch should-not-exist"
+[[tool]]
+name = "missing"
+check = "exit 1"
+install = "touch installed"
+""",
+    )
+    _, report = invoke()
+    assert not (repo / "should-not-exist").exists()
+    assert (repo / "installed").exists()
+    assert report["repos"][0]["items"][0]["detail"] == "already installed"
+
+
+def test_deadline_skips_remaining(setup_cli, repo, write_manifest):
+    invoke, _, _ = setup_cli
+    path = write_manifest(
+        repo,
+        """schema = 1
+[[tool]]
+name = "slow"
+check = "sleep 3"
+install = "touch slow-installed"
+[[tool]]
+name = "later"
+check = "exit 1"
+install = "touch later-installed"
+[[file]]
+source = "rules.md"
+target = "AGENTS.local.md"
+""",
+    )
+    (path.parent / "rules.md").write_text("rules")
+    _, report = invoke("--deadline", "1")
+    item = next(item for item in report["repos"][0]["items"] if item["name"] == "later")
+    assert item["status"] == "skipped" and item["detail"] == "setup deadline"
+    assert not (repo / "later-installed").exists()
+    assert (repo / "AGENTS.local.md").read_text() == "rules"
+
+
+def test_path_marketplace_is_absolute(setup_cli, repo, write_manifest, stub_calls):
+    invoke, _, _ = setup_cli
+    write_manifest(
+        repo,
+        """schema = 1
+[[marketplace]]
+name = "local"
+source = "./local-mp"
+""",
+    )
+    invoke()
+    assert ["plugin", "marketplace", "add", str(repo / "local-mp")] in stub_calls(
+        "claude"
+    )
+
+
+def test_invalid_manifest_recorded_exit_0(setup_cli, repo, write_manifest):
+    invoke, _, _ = setup_cli
+    write_manifest(repo, "schema = 2")
+    _, report = invoke()
+    assert report["repos"][0]["manifest_error"].startswith("schema: ")
+
+
+def test_discovers_children_of_cwd(setup_cli, tmp_path, write_manifest):
+    invoke, _, _ = setup_cli
+    parent = tmp_path / "parent"
+    (parent / "a").mkdir(parents=True)
+    (parent / "b").mkdir()
+    write_manifest(parent / "a", "schema = 1")
+    result, report = invoke(cwd=parent)
+    assert result.returncode == 0
+    assert [row["root"] for row in report["repos"]] == [str(parent / "a")]
+
+
+def test_exit_0_when_everything_fails(setup_cli, stub):
+    invoke, _, _ = setup_cli
+    stub("claude", fail=["plugin"])
+    _, report = invoke()
+    assert all(
+        item["status"] in {"failed", "skipped"}
+        for item in report["items"] + report["repos"][0]["items"]
+    )
+
+
+def test_codex_only_bootstrap_uses_cache_root(
+    setup_cli, repo, write_manifest, stub, tmp_path, run_cli, state_dir
+):
+    _, _, _ = setup_cli
+    home = tmp_path / "codex"
+    plugin = home / "plugins/cache/devkit/devkit/0.1.0"
+    (plugin / "hooks").mkdir(parents=True)
+    script = plugin / "hooks/bootstrap-binaries"
+    script.write_text(
+        f"#!{sys.executable}\nfrom pathlib import Path\nPath('ran').write_text('yes')\n"
+    )
+    script.chmod(0o755)
+    write_manifest(
+        repo,
+        """schema = 1
+[[marketplace]]
+name = "devkit"
+source = "o/r"
+harnesses = ["codex"]
+[[plugin]]
+id = "devkit@devkit"
+bootstrap = ["hooks/bootstrap-binaries"]
+""",
+    )
+    stub(
+        "codex",
+        list_json={
+            "installed": [
+                {
+                    "pluginId": "devkit@devkit",
+                    "name": "devkit",
+                    "marketplaceName": "devkit",
+                    "version": "0.1.0",
+                }
+            ],
+            "available": [],
+        },
+    )
+    result = run_cli("setup", cwd=repo, env={"CODEX_HOME": str(home)})
+    assert result.returncode == 0
+    assert (plugin / "ran").read_text() == "yes"
+    report = json.loads((state_dir / "setup.json").read_text())
+    assert (
+        next(
+            item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+        )["harness"]
+        == "codex"
+    )
