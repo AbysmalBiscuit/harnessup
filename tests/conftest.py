@@ -56,6 +56,9 @@ def repo(tmp_path: Path) -> Path:
     root.mkdir()
     subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
     subprocess.run(
+        ["git", "-C", str(root), "config", "core.excludesfile", "/dev/null"], check=True
+    )
+    subprocess.run(
         ["git", "-C", str(root), "config", "user.email", "test@example.com"], check=True
     )
     subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True)
