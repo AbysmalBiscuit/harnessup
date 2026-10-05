@@ -1,7 +1,7 @@
 from collections.abc import Mapping, Sequence
 from importlib.metadata import version
 from pathlib import Path
-from shutil import copytree, move, rmtree
+from shutil import copy2, copytree, move, rmtree
 from tempfile import TemporaryDirectory
 
 from harnessup import MARKETPLACE_DIR
@@ -62,8 +62,17 @@ def _bootstrap(
     real_state = state_dir().parent.resolve()
     with TemporaryDirectory(prefix="harnessup-bootstrap-") as temporary:
         scratch_state = Path(temporary) / "state"
+        dangling_links: dict[Path, Path] = {}
+
+        def copy_state_file(source: str, destination: str) -> str:
+            path = Path(source)
+            if path.is_symlink() and not path.exists():
+                dangling_links[Path(destination)] = path.readlink()
+                return destination
+            return copy2(source, destination)
+
         if real_state.exists():
-            copytree(real_state, scratch_state)
+            copytree(real_state, scratch_state, copy_function=copy_state_file)
         else:
             scratch_state.mkdir()
         item = _execute(
@@ -76,6 +85,10 @@ def _bootstrap(
             env={"XDG_STATE_HOME": str(scratch_state)},
         )
         if item.status == "ok":
+            # Dangling links stay absent during execution to prevent write-through.
+            for path, target in dangling_links.items():
+                if path.parent.is_dir() and not path.exists() and not path.is_symlink():
+                    path.symlink_to(target)
             if real_state.exists():
                 rmtree(real_state)
             real_state.parent.mkdir(parents=True, exist_ok=True)

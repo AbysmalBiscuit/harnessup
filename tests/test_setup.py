@@ -136,6 +136,51 @@ def test_successful_bootstrap_keeps_state(
         assert state_dir.parent.resolve() == real_state
 
 
+@pytest.mark.parametrize("succeeds", [False, True])
+def test_bootstrap_handles_dangling_state_links(
+    setup_cli, state_dir, tmp_path, succeeds
+):
+    invoke, plugin, log = setup_cli
+    plugin_state = state_dir.parent / "devkit"
+    plugin_state.mkdir(parents=True)
+    missing_target = tmp_path / "missing-target"
+    stamp = plugin_state / "bootstrap-version"
+    stamp.symlink_to(missing_target)
+    other_state = state_dir.parent / "other-app"
+    other_state.mkdir()
+    relative_link = other_state / "relative"
+    relative_link.symlink_to("missing-relative")
+    absolute_link = other_state / "absolute"
+    absolute_link.symlink_to(tmp_path / "missing-absolute")
+    bootstrap = plugin / "hooks/bootstrap-binaries"
+    bootstrap.write_text(
+        bootstrap.read_text()
+        + 'printf "installed" > "$XDG_STATE_HOME/devkit/bootstrap-version"\n'
+        + f"exit {0 if succeeds else 1}\n"
+    )
+
+    _, report = invoke()
+
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == ("ok" if succeeds else "failed")
+    assert len(log.read_text().splitlines()) == (1 if succeeds else 2)
+    assert not missing_target.exists()
+    assert relative_link.is_symlink()
+    assert str(relative_link.readlink()) == "missing-relative"
+    assert not relative_link.exists()
+    assert absolute_link.is_symlink()
+    assert absolute_link.readlink() == tmp_path / "missing-absolute"
+    assert not absolute_link.exists()
+    if succeeds:
+        assert not stamp.is_symlink()
+        assert stamp.read_text() == "installed"
+    else:
+        assert stamp.is_symlink()
+        assert stamp.readlink() == missing_target
+
+
 def test_bootstrap_skipped_when_install_failed(setup_cli, stub):
     invoke, _, log = setup_cli
     stub("claude", fail=["devkit@devkit"])
