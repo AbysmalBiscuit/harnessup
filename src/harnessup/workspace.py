@@ -14,6 +14,12 @@ EXCLUDE_END = "# <<< harnessup"
 SKILL_DIRS = (".claude/skills", ".agents/skills")
 
 
+def _exclude_entry(path: str | Path) -> str:
+    return "/" + "".join(
+        "\\" + char if char in "\\*?[] \t" else char for char in Path(path).as_posix()
+    )
+
+
 @dataclass
 class Changes:
     entries: list[str] = field(default_factory=list)
@@ -59,9 +65,13 @@ def read_exclude_block(root: Path) -> set[str]:
     text = path.read_text()
     if EXCLUDE_BEGIN not in text or EXCLUDE_END not in text:
         return set()
-    return set(
-        text.split(EXCLUDE_BEGIN, 1)[1].split(EXCLUDE_END, 1)[0].strip().splitlines()
-    )
+    return {
+        line
+        for line in text.split(EXCLUDE_BEGIN, 1)[1]
+        .split(EXCLUDE_END, 1)[0]
+        .splitlines()
+        if line
+    }
 
 
 def write_exclude_block(root: Path, entries: Iterable[str]) -> None:
@@ -83,7 +93,7 @@ def place_files(root: Path, files: Sequence[FileEntry], owned: set[str]) -> Chan
     for entry in files:
         source = root / MANIFEST_DIR / entry.source
         target = root / entry.target
-        exclude = "/" + Path(entry.target).as_posix()
+        exclude = _exclude_entry(entry.target)
         if not source.is_file():
             changes.problems.append(
                 f"missing [[file]] source {MANIFEST_DIR}/{entry.source}"
@@ -131,7 +141,7 @@ def merge_settings(root: Path, settings: Mapping[str, object]) -> Changes:
         return Changes(problems=[f"skipped {rel}: not a JSON object"])
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(deep_merge(base, settings), indent=2) + "\n")
-    return Changes(entries=["/" + rel])
+    return Changes(entries=[_exclude_entry(rel)])
 
 
 def link_skills(root: Path) -> Changes:
@@ -174,6 +184,6 @@ def link_skills(root: Path) -> Changes:
             )
             if target.is_relative_to(root.resolve()):
                 changes.entries.append(
-                    "/" + target.relative_to(root.resolve()).as_posix()
+                    _exclude_entry(target.relative_to(root.resolve()))
                 )
     return changes

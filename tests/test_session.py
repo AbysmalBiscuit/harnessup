@@ -214,6 +214,7 @@ target = "{initial}"
         ).returncode
         == 0
     )
+
     assert read_exclude_block(repo) == {"/AGENTS.local.md"}
     (path.parent / "rules.md").write_text("updated rules")
     write_manifest(
@@ -236,3 +237,102 @@ target = "{refresh}"
         ).returncode
         == 0
     )
+
+
+@pytest.mark.parametrize("foreign_tracked", [False, True])
+@pytest.mark.parametrize(
+    ("target", "foreign_name"),
+    [
+        ("rules[1].md", "rules1.md"),
+        ("rules?.md", "rules1.md"),
+        ("rules*.md", "rules1.md"),
+        (r"rules\1.md", "rules1.md"),
+        ("rules.md ", "rules.md"),
+    ],
+)
+def test_generated_file_targets_are_ignored_literally(
+    session_cli, repo, write_manifest, foreign_tracked, target, foreign_name
+):
+    path = write_manifest(
+        repo,
+        f"""schema = 1
+[[file]]
+source = "rules.md"
+target = {json.dumps(target)}
+""",
+    )
+    foreign = repo / foreign_name
+    foreign.write_text("foreign rules")
+    if foreign_tracked:
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "-f", "--", foreign_name], check=True
+        )
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "-qm", "test fixture"], check=True
+        )
+    result = session_cli()
+    assert result.returncode == 0 and "skipped" not in result.stdout
+    assert (repo / target).read_text() == "rules"
+    assert (
+        subprocess.run(
+            ["git", "-C", str(repo), "check-ignore", "--no-index", "--", target],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+    assert (
+        subprocess.run(
+            ["git", "-C", str(repo), "check-ignore", "--no-index", "--", foreign_name],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).returncode
+        == 1
+    )
+    (path.parent / "rules.md").write_text("updated rules")
+    result = session_cli("clear")
+    assert "skipped" not in result.stdout
+    assert (repo / target).read_text() == "updated rules"
+    assert foreign.read_text() == "foreign rules"
+
+
+def test_generated_skill_links_are_ignored_literally(session_cli, repo):
+    source = repo / ".agents/harnessup/skills/cloud[1]"
+    source.mkdir(parents=True)
+    (source / "SKILL.md").write_text("cloud rules")
+    for directory in [".agents/skills", ".claude/skills"]:
+        foreign = repo / directory / "cloud1"
+        foreign.mkdir(parents=True)
+        (foreign / "SKILL.md").write_text("foreign skill")
+    result = session_cli()
+    assert result.returncode == 0 and "skipped" not in result.stdout
+    for directory in [".agents/skills", ".claude/skills"]:
+        assert (repo / directory / "cloud[1]").resolve() == source
+        assert (
+            subprocess.run(
+                ["git", "-C", str(repo), "check-ignore", "--", f"{directory}/cloud[1]"],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).returncode
+            == 0
+        )
+        assert (
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "check-ignore",
+                    "--",
+                    f"{directory}/cloud1/SKILL.md",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            ).returncode
+            == 1
+        )
+    assert "skipped" not in session_cli("clear").stdout
