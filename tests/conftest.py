@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import textwrap
 from collections.abc import Callable
 from pathlib import Path
 
@@ -47,3 +48,26 @@ def run_cli(
         )
 
     return invoke
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "test@example.com"], check=True
+    )
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True)
+    return root
+
+
+@pytest.fixture
+def write_manifest() -> Callable[[Path, str], Path]:
+    def write(root: Path, text: str) -> Path:
+        path = root / ".agents/harnessup/manifest.toml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(textwrap.dedent(text))
+        return path
+
+    return write
