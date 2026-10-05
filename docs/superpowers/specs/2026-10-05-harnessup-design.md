@@ -110,7 +110,6 @@ id = "agent-guard@agent-guard"
 
 [[plugin]]
 id = "superpowers@superpowers-marketplace"
-harnesses = ["claude"]
 
 [[tool]]
 name = "shellcheck"
@@ -143,10 +142,10 @@ recovery = "recovery.md"
 | :- | :- | :- | :- |
 | `schema` | int | yes | Manifest schema version; `1` |
 | `marketplace.name` | str | yes | Marketplace name, as plugin ids reference it; must equal the `name` in the marketplace's own `marketplace.json`, since the harness CLIs register it under that name |
-| `marketplace.source` | str | yes | GitHub `owner/repo`, a git URL, or a path relative to the repository root, which setup resolves to an absolute path before passing it on |
+| `marketplace.source` | str | yes | GitHub `owner/repo`, a git URL (containing `://` or starting with `git@`), or a path relative to the repository root written with a leading `./`, which setup resolves to an absolute path before passing it on |
 | `marketplace.harnesses` | list of `"claude"`, `"codex"` | no, default both | Harnesses to register it with |
 | `plugin.id` | str | yes | `name@marketplace` |
-| `plugin.harnesses` | list | no, default both | Harnesses to install it into |
+| `plugin.harnesses` | list | no, default its marketplace's | Harnesses to install it into; each must be one of its marketplace's harnesses |
 | `plugin.bootstrap` | list of str | no | argv run once during setup; the first element is an executable path inside the installed plugin, the rest are its arguments |
 | `plugin.check` | str | no | Shell command run by session-start with a 2 s timeout; a non-zero exit is reported as a problem, so a plugin whose binaries are missing is visible to the agent |
 | `tool.name` | str | yes | Label for reporting |
@@ -180,7 +179,7 @@ Then per repository, in order:
 
 1. Add each `[[marketplace]]` to each of its harnesses.
 2. Install each `[[plugin]]` at user scope into each of its harnesses.
-3. For each plugin with `bootstrap`, run its argv once from the installed plugin root, with `HARNESSUP_SETUP=1` set; on failure, run it once more. Claude reports the root as `installPath` in `claude plugin list --json`. When the plugin is installed only for Codex, the root is the marketplace root printed by `codex plugin marketplace list` joined with the plugin entry's `source.path`. The bootstrap is skipped when the plugin failed to install.
+3. For each plugin with `bootstrap`, run its argv once from the installed plugin root, with `HARNESSUP_SETUP=1` set; on failure, run it once more. Claude reports the root as `installPath` in `claude plugin list --json`. When the plugin is installed only for Codex, the root is `${CODEX_HOME:-~/.codex}/plugins/cache/<marketplaceName>/<name>/<version>`, from the plugin's entry in the `installed` array of `codex plugin list --json`. The bootstrap is skipped when the plugin failed to install.
 4. For each `[[tool]]`, run `check`; run `install` when it fails.
 5. Run the per-session work of `session-start` for `startup`, without printing context.
 
@@ -242,7 +241,7 @@ Problems are:
 - a skipped file, settings, or skill write;
 - each `failed` or deadline-`skipped` item in `setup.json` whose `root` is this repository;
 - each `[[plugin]]` whose `check` fails ("`devkit --version` failed: devkit's binaries are missing; its SessionStart hook retries the install");
-- on `startup` and `clear` only, each manifest plugin not installed for this harness ("not installed; setup reruns when the environment's setup script changes or its cache expires"), read from `claude plugin list --json` for Claude and skipped for Codex until its CLI's equivalent is confirmed.
+- on `startup` and `clear` only, each manifest plugin not installed for this harness ("not installed; setup reruns when the environment's setup script changes or its cache expires"), read from `claude plugin list --json` (`id`) for Claude and from the `installed` array of `codex plugin list --json` (`pluginId`) for Codex.
 
 session-start makes no network calls and installs nothing. It never exits non-zero.
 
@@ -398,5 +397,5 @@ Monorepo adoption (SWE-12480), including its shared cloud environment, comes aft
 
 - Codex skips plugin hooks until a person trusts them (agent-guard's README), which may stop harnessup's Codex hook from running in an unattended cloud session.
 - Whether Codex follows symlinked skill directories is unverified.
-- The Codex plugin root derivation (marketplace root from `codex plugin marketplace list`, plus the plugin entry's `source.path`) is verified on a workstation but not in a Codex cloud; `codex plugin list --json` has no path field.
+- `codex plugin list --json` has no path field; the Codex plugin root is derived from its cache layout (`plugins/cache/<marketplace>/<name>/<version>`), verified on a workstation but not in a Codex cloud.
 - Whether Claude Code follows symlinked skill directories under `.claude/skills/` is not stated in its docs; the acceptance run confirms that the dogfood `cloud` skill is listed.
