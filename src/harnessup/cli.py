@@ -6,6 +6,7 @@ import time
 from importlib.metadata import version
 from pathlib import Path
 
+from harnessup import commit_patch
 from harnessup.proc import Deadline
 from harnessup.session import session_start
 from harnessup.setup import DEADLINE_S, setup
@@ -24,7 +25,10 @@ def main(argv: list[str] | None = None) -> int:
     setup_parser.add_argument("--deadline", type=float, default=DEADLINE_S)
     session = commands.add_parser("session-start")
     session.add_argument("--harness", choices=["claude", "codex"], required=True)
+    commit_patch.add_arguments(commands.add_parser("commit-patch"))
     args = parser.parse_args(argv)
+    if args.command == "commit-patch":
+        return commit_patch.run(args.patch, args.message)
     if args.command == "setup":
         try:
             setup(

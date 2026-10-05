@@ -119,6 +119,26 @@ Session start reports failures and deadline skips for its repository, checks dec
 
 A plugin owns version matching and binary installation. harnessup runs its declared bootstrap from the installed plugin root with `HARNESSUP_SETUP=1`, retrying once after failure. Under this environment variable, a bootstrap must report failure without writing a sticky failure stamp. Otherwise a failed install captured in a cloud snapshot could disable the plugin's own SessionStart retries. The plugin's normal hook remains responsible for retries after setup.
 
+## Commit a patch
+
+`harnessup commit-patch --patch FILE --message MSG` commits a patch based on HEAD while preserving unrelated staged changes, including independent hunks in the same file. Relative patch paths resolve from the current directory. The helper applies the patch to a private index and leaves working-tree files alone. A stale patch or a patch that conflicts with staged changes exits non-zero without changing HEAD or the shared index.
+
+Define the task in the repository's `devkit.local.toml`:
+
+```toml
+[tasks.commit-patch]
+description = "Commit a patch against HEAD while preserving unrelated staging"
+run = ["harnessup", "commit-patch", "--patch", "{{ patch }}", "--message", "{{ message }}"]
+```
+
+Run it with harnessup on PATH:
+
+```sh
+devrun task commit-patch --arg patch=/tmp/selected.patch --arg message="fix: commit selected hunk"
+```
+
+For a message with a body or coauthor trailers, pass its complete contents with `--arg-file message=FILE`. Hooks and signing run normally. The command requires Git with `merge-tree --write-tree` and `--merge-base` support, and refuses an active merge or rebase, unresolved index entries, and custom or union merge drivers on files changed by both the patch and staging. If commit publication or index installation is uncertain, it retains recovery files and the index lock and reports their paths. Inspect HEAD and recover the index before retrying; HEAD and index updates are not atomic across crashes.
+
 ## Development and releases
 
 Run `devrun task verify` for lint, formatting, type checks and tests. Packaging tests build a wheel, check bundled marketplace files and compare plugin versions with the installed package. They also validate the marketplace with Claude when its CLI is available.
