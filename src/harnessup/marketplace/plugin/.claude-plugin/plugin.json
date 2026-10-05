@@ -1,8 +1,10 @@
 {
   "name": "harnessup",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Prepare cloud coding-agent sessions from repository manifests",
-  "author": { "name": "Lev Velykoivanenko" },
+  "author": {
+    "name": "Lev Velykoivanenko"
+  },
   "homepage": "https://github.com/AbysmalBiscuit/harnessup",
   "repository": "https://github.com/AbysmalBiscuit/harnessup"
 }
