@@ -41,9 +41,9 @@ Measured with a probe session in an Anthropic-hosted Claude cloud environment (b
 | `CLAUDE_CODE_REMOTE=true` is set in both phases | Setup log, session |
 | `SKIP_PLUGIN_MARKETPLACE` is set: Claude Code does not fetch marketplaces the repository declares | Setup env names; matches the documented "cloud sessions don't install repository plugins" |
 
-From the Claude Code docs: the setup script must exit 0 or the session fails to start; a setup finishing within roughly five minutes is snapshotted and reused, skipping the setup script for later sessions until the script or network settings change or the cache expires; SessionStart hooks run on every session, including resumed ones.
+From the Claude Code docs: the setup script must exit 0 or the session fails to start; a setup finishing within roughly five minutes is snapshotted and reused, skipping the setup script for later sessions until the script or network settings change or the cache expires (about seven days); SessionStart hooks run on every session, including resumed ones; all hooks matching an event run in parallel.
 
-Not yet measured: whether a session started from a cached snapshot re-clones the repository or reuses the snapshot's checkout. The design holds either way (per-session work runs at SessionStart), and the acceptance run measures it.
+Not yet measured: whether a session started from a cached snapshot re-clones the repository or reuses the snapshot's checkout. Which session each output reaches depends on it (see "When outputs take effect"), and the acceptance run measures it.
 
 ## Architecture
 
@@ -60,12 +60,14 @@ cloud environment setup script
 
 Claude Code / Codex launches, then the harnessup plugin's SessionStart hook runs
   harnessup session-start --harness claude|codex
-      |- copies [[file]] entries, writes .claude/settings.local.json
+      |- copies [[file]] entries, merges .claude/settings.local.json
       |- links cloud-only skills, rewrites the .git/info/exclude block
       `- prints startup or recovery context, task-tool line, problems
 ```
 
 Version matching between a plugin and its binaries is the plugin's job. devkit and mcpls each ship `hooks/bootstrap-binaries`, which reads the plugin's own `plugin.json` version, installs the matching release, writes a `bootstrap-version` stamp under `$XDG_STATE_HOME/<app>/`, and upgrades when the plugin version moves. harnessup runs that script during setup so the binaries exist before the first session's MCP servers start; afterwards the plugin's own SessionStart hook keeps them current.
+
+Both bootstraps write a sticky `bootstrap-failed` stamp on an installer failure and skip every later attempt until it is removed. Written during setup, that stamp would be captured in the snapshot and disable the plugin's own retry for the cache's lifetime. harnessup runs bootstraps with `HARNESSUP_SETUP=1` in the environment, and a bootstrap run under it does not write a sticky failure stamp, so the plugin's SessionStart hook retries in every session until it succeeds. devkit's and mcpls's bootstraps gain that check before harnessup's first release (Rollout).
 
 harnessup's own plugin ships inside the Python package and is registered as a directory marketplace pointing into the installed package, so the hooks always run against the same version as the CLI.
 
@@ -88,16 +90,27 @@ source = "AbysmalBiscuit/mcpls"
 name = "agent-guard"
 source = "AbysmalBiscuit/agent-guard"
 
+[[marketplace]]
+name = "superpowers-marketplace"
+source = "obra/superpowers-marketplace"
+harnesses = ["claude"]
+
 [[plugin]]
 id = "devkit@devkit"
-bootstrap = "hooks/bootstrap-binaries"
+bootstrap = ["hooks/bootstrap-binaries"]
+check = "devkit --version"
 
 [[plugin]]
 id = "mcpls@mcpls"
-bootstrap = "hooks/bootstrap-binaries"
+bootstrap = ["hooks/bootstrap-binaries", "claude-code"]
+check = "mcpls --version"
 
 [[plugin]]
 id = "agent-guard@agent-guard"
+
+[[plugin]]
+id = "superpowers@superpowers-marketplace"
+harnesses = ["claude"]
 
 [[tool]]
 name = "shellcheck"
@@ -107,6 +120,10 @@ check = "shellcheck --version"
 [[file]]
 source = "AGENTS.local.md"
 target = "AGENTS.local.md"
+
+[[file]]
+source = "CLAUDE.local.md"
+target = "CLAUDE.local.md"
 
 [[file]]
 source = "devkit.local.toml"
@@ -125,24 +142,25 @@ recovery = "recovery.md"
 | Key | Type | Required | Meaning |
 | :- | :- | :- | :- |
 | `schema` | int | yes | Manifest schema version; `1` |
-| `marketplace.name` | str | yes | Marketplace name, as plugin ids reference it |
-| `marketplace.source` | str | yes | GitHub `owner/repo`, a git URL, or a path relative to the repository root |
+| `marketplace.name` | str | yes | Marketplace name, as plugin ids reference it; must equal the `name` in the marketplace's own `marketplace.json`, since the harness CLIs register it under that name |
+| `marketplace.source` | str | yes | GitHub `owner/repo`, a git URL, or a path relative to the repository root, which setup resolves to an absolute path before passing it on |
 | `marketplace.harnesses` | list of `"claude"`, `"codex"` | no, default both | Harnesses to register it with |
 | `plugin.id` | str | yes | `name@marketplace` |
 | `plugin.harnesses` | list | no, default both | Harnesses to install it into |
-| `plugin.bootstrap` | str | no | Executable path inside the installed plugin, run once during setup |
+| `plugin.bootstrap` | list of str | no | argv run once during setup; the first element is an executable path inside the installed plugin, the rest are its arguments |
+| `plugin.check` | str | no | Shell command run by session-start with a 2 s timeout; a non-zero exit is reported as a problem, so a plugin whose binaries are missing is visible to the agent |
 | `tool.name` | str | yes | Label for reporting |
 | `tool.install` | str | yes | Shell command, run with `sh -c` from the repository root |
 | `tool.check` | str | yes | Shell command; exit 0 means installed, so `install` is skipped |
 | `file.source` | str | yes | File under `.agents/harnessup/` |
 | `file.target` | str | yes | Destination under the repository root |
-| `claude.settings_local` | table | no | Written as JSON to `.claude/settings.local.json` |
+| `claude.settings_local` | table | no | Merged into `.claude/settings.local.json` |
 | `context.startup` | str | no | Printed on `startup` and `clear` |
-| `context.recovery` | str | no | Printed on `resume` and `compact` |
+| `context.recovery` | str | no | Printed on `resume`, `compact`, and `fork` |
 
 Validation is strict: an unknown key, an unsupported `schema`, a missing required key, a wrong type, a plugin id whose marketplace is not declared, or a path that is absolute or contains `..` is an error naming the key path. A harness absent from the machine is not an error; its items are skipped.
 
-Plugins, binaries, tools, and settings are declared only here. harnessup does not read the repository's `.claude/settings.json`.
+Plugins, binaries, tools, and settings are declared only here. harnessup does not read the repository's `.claude/settings.json`, and Claude Code does not fetch the marketplaces it declares in a cloud session (`SKIP_PLUGIN_MARKETPLACE`). Every plugin the cloud session needs, including the ones `.claude/settings.json` enables, must be listed in the manifest.
 
 ### Cloud-only skills
 
@@ -162,11 +180,11 @@ Then per repository, in order:
 
 1. Add each `[[marketplace]]` to each of its harnesses.
 2. Install each `[[plugin]]` at user scope into each of its harnesses.
-3. For each plugin with `bootstrap`, run that script once from the installed plugin root. Claude reports the root as `installPath` in `claude plugin list --json`. The script is skipped when the plugin failed to install.
+3. For each plugin with `bootstrap`, run its argv once from the installed plugin root, with `HARNESSUP_SETUP=1` set; on failure, run it once more. Claude reports the root as `installPath` in `claude plugin list --json`. When the plugin is installed only for Codex, the root is the marketplace root printed by `codex plugin marketplace list` joined with the plugin entry's `source.path`. The bootstrap is skipped when the plugin failed to install.
 4. For each `[[tool]]`, run `check`; run `install` when it fails.
 5. Run the per-session work of `session-start` for `startup`, without printing context.
 
-Each subprocess has a timeout (installs and bootstraps 240 s, checks 30 s) so one stuck item cannot push setup past the cache limit. A failing item is recorded and setup moves on. Setup always exits 0.
+Setup has one deadline, 200 s from process start, which leaves room for the `uv tool install` before it inside the roughly five-minute cache limit. Each subprocess has its own timeout (installs and bootstraps 120 s, checks 30 s), clamped to the time left before the deadline; once the deadline passes, every remaining item is recorded as `skipped` with detail `setup deadline`, and step 5 still runs, since it makes no network calls. A failing item is recorded and setup moves on. Setup always exits 0.
 
 Harness CLI commands:
 
@@ -197,27 +215,50 @@ Written to `$XDG_STATE_HOME/harnessup/setup.json` (default `~/.local/state`):
 }
 ```
 
-`status` is `ok`, `skipped`, or `failed`; `detail` holds the last lines of output for a failure.
+`status` is `ok`, `skipped`, or `failed`; `detail` holds the last lines of the command's output, so a marketplace item shows the name the harness registered it under.
 
 ### `harnessup session-start --harness claude|codex`
 
-The harnessup plugin's SessionStart hook: `harnessup session-start --harness claude` in `hooks/hooks.json`, `--harness codex` in `hooks/hooks-codex.json`, timeout 10 s. It reads the hook JSON from stdin and takes `source` from it.
+The harnessup plugin's SessionStart hook: `harnessup session-start --harness claude` in `hooks/hooks.json`, `--harness codex` in `hooks/hooks-codex.json`, timeout 30 s. It reads the hook JSON from stdin and takes `source` from it.
 
 Gate: it does nothing unless `CLOUD_AGENT=true` or `CLAUDE_CODE_REMOTE=true`.
 
-Repository root: `CLAUDE_PROJECT_DIR` when set, otherwise the git top level of the hook payload's `cwd`.
+Repository root: `CLAUDE_PROJECT_DIR` when set, otherwise the git top level of the hook payload's `cwd`. A repository without `.agents/harnessup/manifest.toml` gets no output; the plugin is installed at user scope, so its hook runs in every repository of the environment.
 
 On `startup` and `clear`:
 
-1. Copy each `[[file]]` source to its target, creating parent directories and overwriting.
-2. Write `claude.settings_local` to `.claude/settings.local.json` when the table is present.
+1. Copy each `[[file]]` source to its target, creating parent directories. A target is written only when it is absent or harnessup wrote it, meaning it is listed in the current exclude block. A target git tracks, or an existing file harnessup did not write, is skipped and reported.
+2. Merge `claude.settings_local` into `.claude/settings.local.json` when the table is present: tables merge recursively, lists gain the manifest's entries that are missing, and manifest scalars win. Keys Claude Code itself wrote there (permission choices, local-scope installs) survive. A tracked `.claude/settings.local.json` is skipped and reported.
 3. Link cloud-only skills (below).
 4. Rewrite the exclude block (below).
 5. Print, in order: the `context.startup` file; the harness's task-tool line; one line per problem.
 
-On `resume` and `compact`: print the `context.recovery` file, then one line per problem.
+On `resume`, `compact`, and `fork`: print the `context.recovery` file, then one line per problem.
 
-Problems are: a manifest error; a missing `[[file]]` or context source; a skipped skill link; each `failed` item in `setup.json`; each manifest plugin that is not installed for this harness ("installs next session, after the environment cache rebuilds"), read from `claude plugin list --json` for Claude and skipped for Codex until its CLI's equivalent is confirmed. session-start makes no network calls and installs nothing. It never exits non-zero.
+Problems are:
+
+- a manifest error;
+- a missing `[[file]]` or context source;
+- a skipped file, settings, or skill write;
+- each `failed` or deadline-`skipped` item in `setup.json` whose `root` is this repository;
+- each `[[plugin]]` whose `check` fails ("`devkit --version` failed: devkit's binaries are missing; its SessionStart hook retries the install");
+- on `startup` and `clear` only, each manifest plugin not installed for this harness ("not installed; setup reruns when the environment's setup script changes or its cache expires"), read from `claude plugin list --json` for Claude and skipped for Codex until its CLI's equivalent is confirmed.
+
+session-start makes no network calls and installs nothing. It never exits non-zero.
+
+#### When outputs take effect
+
+All SessionStart hooks of a session run in parallel, and Claude Code reads its settings before running any of them. session-start's writes therefore reach the current session only partly:
+
+| Output | Current session | Next session |
+| :- | :- | :- |
+| Printed context, problems | yes | yes |
+| `[[file]]` targets read by other plugins' SessionStart hooks (`devkit.local.toml`) | race with those hooks | yes |
+| `[[file]]` targets read later (`AGENTS.local.md`, `CLAUDE.local.md`) | yes, unverified for `CLAUDE.local.md` memory | yes |
+| `.claude/settings.local.json` | no | yes |
+| Skill links | unverified | yes |
+
+Setup's step 5 is what makes the first session complete: it writes every output into the checkout before the snapshot. If a cached session reuses that checkout, every row is current from its first moment. If it re-clones, the "Next session" column never arrives, because each session starts from a fresh clone: settings would have to move to a location outside the checkout that setup writes, and the "race" rows would stay racy. The acceptance run settles which, before the monorepo relies on session-time copies.
 
 Task-tool lines:
 
@@ -235,7 +276,7 @@ For a skill `.agents/harnessup/skills/<name>/`:
 3. In each resolved directory, create `<name>` as a relative symlink to the skill's source directory, replacing a previous harnessup link.
 4. When `<name>` in that directory is tracked by git, or is a file or directory harnessup did not create, skip it and report the collision. A tracked skill is never shadowed.
 
-Symlinks rather than copies: Claude Code follows symlinked skill directories (documented), so there is one source and nothing goes stale.
+Symlinks rather than copies: there is one source and nothing goes stale. That Claude Code follows a symlinked skill directory is a known gap the acceptance run confirms.
 
 #### Exclude block
 
@@ -244,13 +285,14 @@ Generated paths are ignored through `.git/info/exclude`, resolved with `git rev-
 ```
 # >>> harnessup (generated; rewritten every session)
 /AGENTS.local.md
+/CLAUDE.local.md
 /devkit.local.toml
 /.claude/settings.local.json
 /.agents/skills/cloud
 # <<< harnessup
 ```
 
-Entries are every `[[file]]` target, `.claude/settings.local.json` when written, and each skill link path inside the repository. The block is replaced in place on every run; lines outside it are preserved; a missing block is appended.
+Entries are every `[[file]]` target harnessup wrote, `.claude/settings.local.json` when written, and each skill link path inside the repository. The block doubles as harnessup's record of what it wrote, which file step 1 consults. The block is replaced in place on every run; lines outside it are preserved; a missing block is appended.
 
 ## Package layout
 
@@ -286,19 +328,21 @@ AbysmalBiscuit/harnessup
 | Where | Failure | Behaviour |
 | :- | :- | :- |
 | setup | One item fails | Recorded as `failed`; later items still run; a plugin's bootstrap is skipped when the plugin failed |
+| setup | Bootstrap fails | Retried once; if it fails again, recorded as `failed`, and the plugin's own SessionStart hook retries in each session |
 | setup | Harness CLI absent | That harness's items recorded as `skipped` |
 | setup | Subprocess exceeds its timeout | Killed, recorded as `failed` |
+| setup | Deadline passes | Remaining items recorded as `skipped` with detail `setup deadline`; per-session work still runs |
 | setup | Manifest invalid | Nothing installed for that repository; `manifest_error` recorded |
 | setup | Unexpected exception | Caught at the top level, recorded, exit 0 |
 | session-start | Any problem | One context line each; exit 0 |
-| session-start | Not in a cloud | No output, exit 0 |
+| session-start | Not in a cloud, or no manifest | No output, exit 0 |
 
 ## Testing
 
 pytest, driving the real CLI entry point against temporary git repositories.
 
-- `session-start`: hook JSON on stdin; files copied; settings written; recovery printed on `resume`; silent with the gate off; skill links with `.claude/skills` symlinked to `.agents/skills`, with separate directories, and with `.claude/skills` missing; a tracked skill name skipped and reported; the exclude block rewritten idempotently while preserving lines outside it; problems from `setup.json` and missing plugins reported.
-- `setup`: stub `claude` and `codex` executables on PATH that record their argv and emit `plugin list --json`; a stub plugin whose bootstrap records that it ran; one failing item does not stop the rest; `setup.json` contents; exit 0 on failure and on an invalid manifest; repository discovery from a parent cwd.
+- `session-start`: hook JSON on stdin; files copied; a tracked or foreign file target skipped and reported; settings merged into an existing `.claude/settings.local.json` without dropping its keys; recovery printed on `resume` and `fork`; silent with the gate off and without a manifest; skill links with `.claude/skills` symlinked to `.agents/skills`, with separate directories, and with `.claude/skills` missing; a tracked skill name skipped and reported; the exclude block rewritten idempotently while preserving lines outside it; problems from `setup.json` limited to this repository; a failing plugin `check` and missing plugins reported.
+- `setup`: stub `claude` and `codex` executables on PATH that record their argv and emit `plugin list --json`; a stub plugin whose bootstrap records its argv and `HARNESSUP_SETUP`, and one that fails once then succeeds; one failing item does not stop the rest; a deadline shorter than a stub's sleep records later items as `skipped`; `setup.json` contents; exit 0 on failure and on an invalid manifest; repository discovery from a parent cwd; a path marketplace source passed as an absolute path.
 - Manifest: each validation error names its key path.
 - Packaging: build the wheel and assert the marketplace files are present; run `claude plugin validate` on the marketplace directory when `claude` is on PATH, skip otherwise.
 
@@ -324,9 +368,10 @@ Manual, in a real cloud environment on devkit's dogfood manifest: a fresh sessio
 
 ## Rollout
 
-1. **harnessup v0.1.0** (SWE-12024): implement this spec, merge with CI green, release. The README documents the setup script and the manifest. Then delete the `cloud-probe` branch and the probe environment.
-2. **commit-patch moves into devkit** (a devkit issue): `git-commit-patch.py` backs devkit's `commit-patch` task and belongs with devkit. It keeps the prototype's form, a helper the `commit-patch` task runs with `--patch` and `--message`, so existing `devkit.local.toml` task definitions keep working. harnessup does not depend on it.
-3. **devkit dogfoods harnessup**: replace `.agents/skills/cloud/` with `.agents/harnessup/` (manifest, `AGENTS.local.md`, `devkit.local.toml`, `startup.md`, `recovery.md`, `skills/cloud/`); remove the cloud SessionStart and Setup hooks from devkit's `.claude/settings.json` and the `cloud` CI job. Verify with the acceptance check.
+1. **Bootstraps honour `HARNESSUP_SETUP`** (a devkit change and an mcpls change): under `HARNESSUP_SETUP=1`, `bootstrap-binaries` reports a failure without writing its `bootstrap-failed` stamp. devkit's bootstrap also prints its failures as SessionStart `additionalContext`, as mcpls's already does, so the agent sees them without harnessup.
+2. **harnessup v0.1.0** (SWE-12024): implement this spec, merge with CI green, release. The README documents the setup script and the manifest. Then delete the `cloud-probe` branch and the probe environment.
+3. **commit-patch moves into devkit** (a devkit issue): `git-commit-patch.py` backs devkit's `commit-patch` task and belongs with devkit. It keeps the prototype's form, a helper the `commit-patch` task runs with `--patch` and `--message`, so existing `devkit.local.toml` task definitions keep working. harnessup does not depend on it.
+4. **devkit dogfoods harnessup**: replace `.agents/skills/cloud/` with `.agents/harnessup/` (manifest listing superpowers alongside devkit, mcpls, and agent-guard; `AGENTS.local.md`; `CLAUDE.local.md`, which imports `@AGENTS.local.md` so the standing rules load as memory; `devkit.local.toml`; `startup.md`; `recovery.md`; `skills/cloud/`); remove the cloud SessionStart and Setup hooks from devkit's `.claude/settings.json` and the `cloud` CI job. Verify with the acceptance check.
 
 Monorepo adoption (SWE-12480), including its shared cloud environment, comes after this rollout and is not part of this spec.
 
@@ -335,11 +380,11 @@ Monorepo adoption (SWE-12480), including its shared cloud environment, comes aft
 | Prototype piece | Replacement |
 | :- | :- |
 | `install_plugin_release` and `DEVKIT_INSTALL_DIR` / `MCPLS_INSTALL_DIR` | The plugin's own `bootstrap-binaries`, run by setup; binaries land in `CARGO_HOME`, already on PATH |
-| `commit-msg` attribution hook | devkit's command guard blocks raw `git commit`, and its `commit` task requires `coauthors` from agents |
+| `commit-msg` attribution hook | None enforced: devkit's command guard routes commits through its tasks, and `AGENTS.local.md` instructs the agent to pass `coauthors`, which the tasks accept but do not require |
 | `git-commit-patch.py` | Moves into devkit |
 | `@COMMIT_HELPER@` template substitution | None; `[[file]]` is a plain copy |
 | `CLOUD_AGENT_TYPE` | `--harness` in each harness's hook file |
-| devkit presence report | `setup.json` problems; each plugin's bootstrap reports its own binaries |
+| devkit presence report | `[[plugin]] check`, reported by session-start; `setup.json` problems |
 | Claude `Setup` hook and `--handoff` | None |
 
 ## Out of scope
@@ -353,4 +398,5 @@ Monorepo adoption (SWE-12480), including its shared cloud environment, comes aft
 
 - Codex skips plugin hooks until a person trusts them (agent-guard's README), which may stop harnessup's Codex hook from running in an unattended cloud session.
 - Whether Codex follows symlinked skill directories is unverified.
-- Locating an installed plugin's root through the Codex CLI is unverified; a plugin installed only for Codex may have its bootstrap skipped until this is known.
+- The Codex plugin root derivation (marketplace root from `codex plugin marketplace list`, plus the plugin entry's `source.path`) is verified on a workstation but not in a Codex cloud; `codex plugin list --json` has no path field.
+- Whether Claude Code follows symlinked skill directories under `.claude/skills/` is not stated in its docs; the acceptance run confirms that the dogfood `cloud` skill is listed.
