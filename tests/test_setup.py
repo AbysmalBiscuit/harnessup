@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -231,6 +232,41 @@ shutil.copytree = copytree
     assert item["status"] == "failed"
     assert "injected promotion failure" in item["detail"]
     assert len(log.read_text().splitlines()) == 2
+
+
+def test_state_preparation_failure_continues_setup(
+    setup_cli, state_dir, repo, write_manifest
+):
+    invoke, _, log = setup_cli
+    other_state = state_dir.parent / "other-app"
+    other_state.mkdir(parents=True)
+    os.mkfifo(other_state / "events")
+    manifest_path = repo / ".agents/harnessup/manifest.toml"
+    write_manifest(
+        repo,
+        manifest_path.read_text()
+        + """
+[[tool]]
+name = "later"
+check = "exit 1"
+install = "touch tool-installed"
+[[file]]
+source = "rules.md"
+target = "AGENTS.local.md"
+""",
+    )
+    (manifest_path.parent / "rules.md").write_text("rules")
+
+    _, report = invoke()
+
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == "failed"
+    assert "named pipe" in item["detail"]
+    assert not log.exists()
+    assert (repo / "tool-installed").exists()
+    assert (repo / "AGENTS.local.md").read_text() == "rules"
 
 
 def test_bootstrap_skipped_when_install_failed(setup_cli, stub):

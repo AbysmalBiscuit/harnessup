@@ -103,10 +103,19 @@ def _bootstrap(
                 return destination
             return copy2(source, destination)
 
-        if real_state.exists():
-            copytree(real_state, scratch_state, copy_function=copy_state_file)
-        else:
-            scratch_state.mkdir()
+        try:
+            if real_state.exists():
+                copytree(real_state, scratch_state, copy_function=copy_state_file)
+            else:
+                scratch_state.mkdir()
+        except OSError as error:
+            return Item(
+                "bootstrap",
+                name,
+                harness,
+                "failed",
+                f"could not prepare state: {error}",
+            )
         item = _execute(
             "bootstrap",
             name,
