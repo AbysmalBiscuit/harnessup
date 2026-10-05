@@ -1,0 +1,18 @@
+{
+  "enabledPlugins": {
+    "cloud-probe-repo@cloud-probe": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/spike/cloud-probe/plugins/cloud-probe-repo/hooks/session-start.sh\" repo-settings",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

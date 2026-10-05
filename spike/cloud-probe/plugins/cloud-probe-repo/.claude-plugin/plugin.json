@@ -1,0 +1,6 @@
+{
+  "name": "cloud-probe-repo",
+  "version": "0.0.0",
+  "description": "Throwaway cloud probe plugin",
+  "author": { "name": "Lev Velykoivanenko" }
+}

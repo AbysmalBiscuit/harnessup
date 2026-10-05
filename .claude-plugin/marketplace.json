@@ -1,0 +1,17 @@
+{
+  "name": "cloud-probe",
+  "description": "Throwaway probe of plugin loading in Claude cloud sessions",
+  "owner": { "name": "Lev Velykoivanenko" },
+  "plugins": [
+    {
+      "name": "cloud-probe-user",
+      "source": "./spike/cloud-probe/plugins/cloud-probe-user",
+      "description": "Installed at user scope by the setup script"
+    },
+    {
+      "name": "cloud-probe-repo",
+      "source": "./spike/cloud-probe/plugins/cloud-probe-repo",
+      "description": "Enabled only through the repository's .claude/settings.json"
+    }
+  ]
+}
