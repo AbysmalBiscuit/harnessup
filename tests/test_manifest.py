@@ -68,6 +68,7 @@ def test_parse_spec_example():
         ({"schema": 1, "tool": [{"name": "t", "install": "i"}]}, "tool[0].check"),
         ({"schema": 1, "claude": {"settings_local": []}}, "claude.settings_local"),
         ({"schema": 1, "context": {"startup": 3}}, "context.startup"),
+        ({"schema": 1, "context": {"task_tools": "no"}}, "context.task_tools"),
         (
             {"schema": 1, "file": [{"source": "x", "target": "y", "typo": 1}]},
             "file[0].typo",

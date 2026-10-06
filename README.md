@@ -96,6 +96,7 @@ recovery = "recovery.md"
 | `claude.settings_local` | table | no | Recursively merged into `.claude/settings.local.json`; lists gain missing entries and manifest scalars win |
 | `context.startup` | string | no | File relative to `.agents/harnessup/`, printed for startup and clear |
 | `context.recovery` | string | no | File relative to `.agents/harnessup/`, printed for resume, compact and fork |
+| `context.task_tools` | boolean | no | `false` drops the task-tool reminder from startup context, for a repository whose startup context says how to track work; defaults to `true` |
 
 Unknown keys, unsupported schemas, missing required values, wrong types, undeclared marketplaces, absolute paths and paths containing `..` are errors naming the relevant key. List every plugin the cloud session needs in the manifest, including plugins enabled in `.claude/settings.json`. harnessup does not read that file, and cloud sessions do not fetch its marketplaces.
 
@@ -103,7 +104,7 @@ Unknown keys, unsupported schemas, missing required values, wrong types, undecla
 
 Put each cloud-only skill in `.agents/harnessup/skills/<name>/SKILL.md`. No manifest entry is needed. harnessup links the skill into both `.claude/skills/` and `.agents/skills/`, resolving and deduplicating shared directories. It skips tracked skills and foreign files or directories instead of shadowing them.
 
-The bundled SessionStart hooks invoke `harnessup session-start --harness claude` or `--harness codex`. They do nothing unless `CLOUD_AGENT=true` or `CLAUDE_CODE_REMOTE=true`, and stay silent in repositories without a manifest. Startup and clear place files, merge Claude's local settings, link skills, and print startup context and a task-tool reminder. Resume, compact and fork print recovery context. All sources report problems without failing the hook. Session start makes no network calls and installs nothing.
+The bundled SessionStart hooks invoke `harnessup session-start --harness claude` or `--harness codex`. They do nothing unless `CLOUD_AGENT=true` or `CLAUDE_CODE_REMOTE=true`, and stay silent in repositories without a manifest. Startup and clear place files, merge Claude's local settings, link skills, and print startup context and, unless `context.task_tools = false`, a task-tool reminder. Resume, compact and fork print recovery context. All sources report problems without failing the hook. Session start makes no network calls and installs nothing.
 
 File targets are written only when absent or listed in harnessup's current `.git/info/exclude` block. Tracked files and existing foreign targets are skipped. The generated exclude block also covers local settings and skill links; lines outside it survive. Removing a file entry leaves the old target in place and removes its exclude entry. Existing Claude settings keys survive the recursive merge, and invalid JSON is left untouched and reported.
 

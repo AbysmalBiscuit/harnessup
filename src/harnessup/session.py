@@ -105,7 +105,7 @@ def session_start(
         part
         for part in [
             context,
-            cli.task_line if startup else "",
+            cli.task_line if startup and manifest.task_tools else "",
             "\n".join(f"harnessup: {text}" for text in problems),
         ]
         if part
