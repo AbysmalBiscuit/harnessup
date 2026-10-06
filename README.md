@@ -70,6 +70,10 @@ target = "CLAUDE.local.md"
 source = "devkit.local.toml"
 target = "devkit.local.toml"
 
+[[home_file]]
+source = "devkit-config.toml"
+target = ".config/devkit/config.toml"
+
 [claude.settings_local]
 permissions = { allow = ["Bash(devrun task:*)"] }
 
@@ -93,6 +97,8 @@ recovery = "recovery.md"
 | `tool.check` | string | yes | Shell command; a successful exit skips installation |
 | `file.source` | string | yes | File relative to `.agents/harnessup/` |
 | `file.target` | string | yes | Destination relative to the repository root |
+| `home_file.source` | string | yes | File relative to `.agents/harnessup/` |
+| `home_file.target` | string | yes | Destination relative to the home directory; placed only by `harnessup setup` |
 | `claude.settings_local` | table | no | Recursively merged into `.claude/settings.local.json`; lists gain missing entries and manifest scalars win |
 | `context.startup` | string | no | File relative to `.agents/harnessup/`, printed for startup and clear |
 | `context.recovery` | string | no | File relative to `.agents/harnessup/`, printed for resume, compact and fork |
@@ -107,6 +113,8 @@ Put each cloud-only skill in `.agents/harnessup/skills/<name>/SKILL.md`. No mani
 The bundled SessionStart hooks invoke `harnessup session-start --harness claude` or `--harness codex`. They do nothing unless `CLOUD_AGENT=true` or `CLAUDE_CODE_REMOTE=true`, and stay silent in repositories without a manifest. Startup and clear place files, merge Claude's local settings, link skills, and print startup context and, unless `context.task_tools = false`, a task-tool reminder. Resume, compact and fork print recovery context. All sources report problems without failing the hook. Session start makes no network calls and installs nothing.
 
 File targets are written only when absent or listed in harnessup's current `.git/info/exclude` block. Tracked files and existing foreign targets are skipped. The generated exclude block also covers local settings and skill links; lines outside it survive. Removing a file entry leaves the old target in place and removes its exclude entry. Existing Claude settings keys survive the recursive merge, and invalid JSON is left untouched and reported.
+
+Home files are for configuration a tool reads only from the user's home directory. `harnessup setup` copies each one into place and reports it as a `home_file` item; an existing target with other content is left alone and reported `skipped`, so running setup on a workstation never overwrites the user's own files. Session start never writes them, so a repository's hook cannot reach outside the checkout.
 
 Setup prepares these files before the first session. Changes to settings during a SessionStart hook take effect in a later session because the harness has already read its settings. Cloud snapshot checkout reuse and symlinked skill loading still need acceptance testing in the target cloud environment.
 

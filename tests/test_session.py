@@ -96,6 +96,16 @@ def test_task_tools_false_omits_task_line(session_cli, repo, harness):
     assert "Track progress" not in result.stdout
 
 
+def test_session_start_ignores_home_files(session_cli, repo, tmp_path):
+    manifest = repo / ".agents/harnessup/manifest.toml"
+    manifest.write_text(
+        manifest.read_text()
+        + '[[home_file]]\nsource = "rules.md"\ntarget = ".config/x/rules.md"\n'
+    )
+    assert session_cli().returncode == 0
+    assert not (tmp_path / "home/.config/x/rules.md").exists()
+
+
 @pytest.mark.parametrize("payload", ["not json", "{}", "[]"])
 def test_payload_without_source_or_cwd(session_cli, payload):
     assert session_cli(stdin=payload).stdout.startswith(

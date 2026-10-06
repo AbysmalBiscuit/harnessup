@@ -62,6 +62,14 @@ def test_parse_spec_example():
             "file[0].target",
         ),
         (
+            {"schema": 1, "home_file": [{"source": "x", "target": "/etc/x"}]},
+            "home_file[0].target",
+        ),
+        (
+            {"schema": 1, "home_file": [{"source": "x", "target": "../x"}]},
+            "home_file[0].target",
+        ),
+        (
             {"schema": 1, "marketplace": [{"name": "m", "source": "./../m"}]},
             "marketplace[0].source",
         ),
