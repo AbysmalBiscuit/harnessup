@@ -87,6 +87,15 @@ def test_codex_task_line(session_cli):
     assert "Track progress with `update_plan`" in session_cli(harness="codex").stdout
 
 
+@pytest.mark.parametrize("harness", ["claude", "codex"])
+def test_task_tools_false_omits_task_line(session_cli, repo, harness):
+    manifest = repo / ".agents/harnessup/manifest.toml"
+    manifest.write_text(manifest.read_text() + "task_tools = false\n")
+    result = session_cli(harness=harness)
+    assert result.stdout.startswith("Read AGENTS.local.md")
+    assert "Track progress" not in result.stdout
+
+
 @pytest.mark.parametrize("payload", ["not json", "{}", "[]"])
 def test_payload_without_source_or_cwd(session_cli, payload):
     assert session_cli(stdin=payload).stdout.startswith(

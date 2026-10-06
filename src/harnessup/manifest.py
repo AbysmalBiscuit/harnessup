@@ -58,6 +58,7 @@ class Manifest:
     settings_local: dict[str, object] | None
     startup: str | None
     recovery: str | None
+    task_tools: bool = True
 
 
 def source_kind(source: str) -> Literal["path", "git", "github"]:
@@ -185,7 +186,12 @@ def parse(data: dict[str, object]) -> Manifest:
         if "settings_local" in claude
         else None
     )
-    context = _table(data.get("context", {}), "context", {"startup", "recovery"})
+    context = _table(
+        data.get("context", {}), "context", {"startup", "recovery", "task_tools"}
+    )
+    task_tools = context.get("task_tools", True)
+    if not isinstance(task_tools, bool):
+        raise ManifestError("context.task_tools: expected a boolean")
     startup = (
         _path(context["startup"], "context.startup") if "startup" in context else None
     )
@@ -195,7 +201,14 @@ def parse(data: dict[str, object]) -> Manifest:
         else None
     )
     return Manifest(
-        tuple(marketplaces), tuple(plugins), tools, files, settings, startup, recovery
+        tuple(marketplaces),
+        tuple(plugins),
+        tools,
+        files,
+        settings,
+        startup,
+        recovery,
+        task_tools,
     )
 
 
