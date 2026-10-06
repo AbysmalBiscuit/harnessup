@@ -59,6 +59,7 @@ class Manifest:
     startup: str | None
     recovery: str | None
     task_tools: bool = True
+    home_files: tuple[FileEntry, ...] = ()
 
 
 def source_kind(source: str) -> Literal["path", "git", "github"]:
@@ -121,11 +122,30 @@ def _rows(
     ]
 
 
+def _files(data: dict[str, object], key: str) -> tuple[FileEntry, ...]:
+    return tuple(
+        FileEntry(
+            _path(row.get("source"), f"{path}.source"),
+            _path(row.get("target"), f"{path}.target"),
+        )
+        for path, row in _rows(data, key, {"source", "target"})
+    )
+
+
 def parse(data: dict[str, object]) -> Manifest:
     _table(
         data,
         "",
-        {"schema", "marketplace", "plugin", "tool", "file", "claude", "context"},
+        {
+            "schema",
+            "marketplace",
+            "plugin",
+            "tool",
+            "file",
+            "home_file",
+            "claude",
+            "context",
+        },
     )
     if type(data.get("schema")) is not int or data["schema"] != 1:
         raise ManifestError("schema: expected schema version 1")
@@ -173,13 +193,8 @@ def parse(data: dict[str, object]) -> Manifest:
         )
         for path, row in _rows(data, "tool", {"name", "install", "check"})
     )
-    files = tuple(
-        FileEntry(
-            _path(row.get("source"), f"{path}.source"),
-            _path(row.get("target"), f"{path}.target"),
-        )
-        for path, row in _rows(data, "file", {"source", "target"})
-    )
+    files = _files(data, "file")
+    home_files = _files(data, "home_file")
     claude = _table(data.get("claude", {}), "claude", {"settings_local"})
     settings = (
         _table(claude["settings_local"], "claude.settings_local")
@@ -209,6 +224,7 @@ def parse(data: dict[str, object]) -> Manifest:
         startup,
         recovery,
         task_tools,
+        home_files,
     )
 
 

@@ -405,6 +405,51 @@ def test_invalid_manifest_recorded_exit_0(setup_cli, repo, write_manifest):
     assert report["repos"][0]["manifest_error"].startswith("schema: ")
 
 
+HOME_FILE_MANIFEST = """schema = 1
+[[home_file]]
+source = "devkit-config.toml"
+target = ".config/devkit/config.toml"
+"""
+
+
+def home_file_items(report):
+    return [
+        (item["status"], item["name"])
+        for item in report["repos"][0]["items"]
+        if item["kind"] == "home_file"
+    ]
+
+
+def test_setup_places_home_files(setup_cli, repo, write_manifest, tmp_path):
+    invoke, _, _ = setup_cli
+    manifest = write_manifest(repo, HOME_FILE_MANIFEST)
+    (manifest.parent / "devkit-config.toml").write_text("[todo]\n")
+    target = tmp_path / "home/.config/devkit/config.toml"
+    for _ in range(2):
+        _, report = invoke()
+        assert target.read_text() == "[todo]\n"
+        assert home_file_items(report) == [("ok", ".config/devkit/config.toml")]
+
+
+def test_setup_keeps_existing_home_file(setup_cli, repo, write_manifest, tmp_path):
+    invoke, _, _ = setup_cli
+    manifest = write_manifest(repo, HOME_FILE_MANIFEST)
+    (manifest.parent / "devkit-config.toml").write_text("[todo]\n")
+    target = tmp_path / "home/.config/devkit/config.toml"
+    target.parent.mkdir(parents=True)
+    target.write_text("mine\n")
+    _, report = invoke()
+    assert target.read_text() == "mine\n"
+    assert home_file_items(report) == [("skipped", ".config/devkit/config.toml")]
+
+
+def test_setup_reports_missing_home_file_source(setup_cli, repo, write_manifest):
+    invoke, _, _ = setup_cli
+    write_manifest(repo, HOME_FILE_MANIFEST)
+    _, report = invoke()
+    assert home_file_items(report) == [("failed", ".config/devkit/config.toml")]
+
+
 def test_discovers_children_of_cwd(setup_cli, tmp_path, write_manifest):
     invoke, _, _ = setup_cli
     parent = tmp_path / "parent"

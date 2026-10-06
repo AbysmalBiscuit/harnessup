@@ -2,15 +2,23 @@ from collections.abc import Mapping, Sequence
 from filecmp import cmp, cmpfiles, dircmp
 from importlib.metadata import version
 from pathlib import Path
-from shutil import copytree, rmtree
+from shutil import copy2, copytree, rmtree
 from tempfile import TemporaryDirectory, mkdtemp
 
 from harnessup import MARKETPLACE_DIR
 from harnessup.harness import CLIS
-from harnessup.manifest import MANIFEST_FILE, Harness, ManifestError, load, source_kind
+from harnessup.manifest import (
+    MANIFEST_DIR,
+    MANIFEST_FILE,
+    FileEntry,
+    Harness,
+    ManifestError,
+    load,
+    source_kind,
+)
 from harnessup.proc import Deadline, run
 from harnessup.session import prepare
-from harnessup.state import Item, RepoReport, state_dir, write_report
+from harnessup.state import Item, RepoReport, Status, state_dir, write_report
 
 DEADLINE_S = 200.0
 INSTALL_TIMEOUT_S = 120.0
@@ -179,6 +187,27 @@ def _bootstrap(
         return item
 
 
+def _place_home_file(root: Path, entry: FileEntry) -> Item:
+    source = root / MANIFEST_DIR / entry.source
+    target = Path.home() / entry.target
+
+    def item(status: Status, detail: str) -> Item:
+        return Item("home_file", entry.target, None, status, detail)
+
+    if not source.is_file():
+        return item("failed", f"missing source {MANIFEST_DIR}/{entry.source}")
+    try:
+        if target.exists() or target.is_symlink():
+            if target.is_file() and cmp(source, target, shallow=False):
+                return item("ok", "already in place")
+            return item("skipped", "target exists with other content")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        copy2(source, target)
+    except OSError as error:
+        return item("failed", str(error))
+    return item("ok", "placed")
+
+
 def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
     own: list[Item] = []
     reports: list[RepoReport] = []
@@ -307,6 +336,9 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
             elif item.status == "failed":
                 item = _execute("tool", tool.name, None, tool.install, root, deadline)
             report.items.append(item)
+        report.items.extend(
+            _place_home_file(root, entry) for entry in manifest.home_files
+        )
         try:
             changes = prepare(root, manifest)
             report.items.extend(
