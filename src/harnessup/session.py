@@ -55,20 +55,11 @@ def prepare(root: Path, manifest: Manifest) -> Changes:
     return changes
 
 
-def render(parts: list[str], problems: list[str]) -> str:
-    return "\n\n".join(
-        part
-        for part in [*parts, "\n".join(f"harnessup: {text}" for text in problems)]
-        if part
-    )
-
-
 def session_start(
     harness: Harness, payload: Mapping[str, object], env: Mapping[str, str]
 ) -> str:
     if not in_cloud(env):
         return ""
-    problems = silence_stop_hook() if harness == "claude" else []
     cwd = payload.get("cwd")
     root = repo_root(Path(cwd) if isinstance(cwd, str) else Path.cwd(), env)
     source = payload.get("source", "startup")
@@ -77,11 +68,21 @@ def session_start(
     try:
         manifest = load(root)
     except ManifestError as error:
-        return render(
-            [cli.task_line if startup else ""], [*problems, f"manifest error: {error}"]
+        return "\n\n".join(
+            part
+            for part in [
+                cli.task_line if startup else "",
+                f"harnessup: manifest error: {error}",
+            ]
+            if part
         )
     if manifest is None:
-        return render([], problems)
+        return ""
+    problems = (
+        silence_stop_hook()
+        if harness == "claude" and manifest.silence_stop_hook
+        else []
+    )
     if startup:
         problems.extend(prepare(root, manifest).problems)
     context_name = manifest.startup if startup else manifest.recovery
@@ -120,6 +121,12 @@ def session_start(
                     problems.append(
                         f"{plugin.id} not installed; setup reruns when the environment's setup script changes or its cache expires"
                     )
-    return render(
-        [context, cli.task_line if startup and manifest.task_tools else ""], problems
+    return "\n\n".join(
+        part
+        for part in [
+            context,
+            cli.task_line if startup and manifest.task_tools else "",
+            "\n".join(f"harnessup: {text}" for text in problems),
+        ]
+        if part
     )

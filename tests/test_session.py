@@ -358,7 +358,11 @@ def test_generated_skill_links_are_ignored_literally(session_cli, repo):
     assert "skipped" not in session_cli("clear").stdout
 
 
-def session_start_without_manifest(run_cli, repo, harness="claude", env=None):
+def stop_hook_session(
+    run_cli, repo, write_manifest, claude, harness="claude", env=None
+):
+    if claude is not None:
+        write_manifest(repo, f"schema = 1\n[claude]\n{claude}\n")
     return run_cli(
         "session-start",
         "--harness",
@@ -368,34 +372,51 @@ def session_start_without_manifest(run_cli, repo, harness="claude", env=None):
     )
 
 
-def test_claude_cloud_session_silences_stop_hook(run_cli, repo, run_stop_hook):
-    result = session_start_without_manifest(run_cli, repo)
-    assert result.returncode == 0 and result.stdout == ""
+def test_manifest_opt_in_silences_stop_hook(
+    run_cli, repo, write_manifest, run_stop_hook
+):
+    result = stop_hook_session(
+        run_cli, repo, write_manifest, "silence_stop_hook = true"
+    )
+    assert result.returncode == 0
     assert run_stop_hook() == (0, "", "")
 
 
 @pytest.mark.parametrize(
-    ("harness", "env"),
-    [("codex", {}), ("claude", {"CLAUDE_CODE_REMOTE": "false"})],
+    ("claude", "harness", "env"),
+    [
+        (None, "claude", {}),
+        ("", "claude", {}),
+        ("silence_stop_hook = false", "claude", {}),
+        ("silence_stop_hook = true", "codex", {}),
+        ("silence_stop_hook = true", "claude", {"CLAUDE_CODE_REMOTE": "false"}),
+    ],
 )
-def test_stop_hook_untouched_outside_claude_cloud(
-    run_cli, repo, run_stop_hook, harness, env
+def test_stop_hook_untouched_without_opt_in(
+    run_cli, repo, write_manifest, run_stop_hook, claude, harness, env
 ):
-    session_start_without_manifest(run_cli, repo, harness, env)
+    stop_hook_session(run_cli, repo, write_manifest, claude, harness, env)
     assert run_stop_hook()[0] == 2
 
 
-def test_missing_stop_hook_not_created(run_cli, repo, tmp_path):
-    result = session_start_without_manifest(run_cli, repo)
-    assert result.returncode == 0 and result.stdout == ""
-    assert not (tmp_path / "home/.claude/stop-hook-git-check.sh").exists()
+def test_non_boolean_opt_in_is_manifest_error(
+    run_cli, repo, write_manifest, run_stop_hook
+):
+    result = stop_hook_session(
+        run_cli, repo, write_manifest, 'silence_stop_hook = "yes"'
+    )
+    assert (
+        "harnessup: manifest error: claude.silence_stop_hook: expected a boolean"
+        in result.stdout
+    )
+    assert run_stop_hook()[0] == 2
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
-def test_unwritable_stop_hook_reported(run_cli, repo, stop_hook):
+def test_unwritable_stop_hook_reported(run_cli, repo, write_manifest, stop_hook):
     stop_hook.chmod(0o555)
-    result = session_start_without_manifest(run_cli, repo)
-    assert result.returncode == 0
-    assert result.stdout.startswith(
-        f"harnessup: could not silence stop hook {stop_hook}:"
+    result = stop_hook_session(
+        run_cli, repo, write_manifest, "silence_stop_hook = true"
     )
+    assert result.returncode == 0
+    assert f"harnessup: could not silence stop hook {stop_hook}:" in result.stdout

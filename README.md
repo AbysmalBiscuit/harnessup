@@ -15,7 +15,25 @@ The git install follows `main`; append `@vX.Y.Z` to pin a release. Setup discove
 
 ## Claude cloud stop hook
 
-Claude cloud runs `~/.claude/stop-hook-git-check.sh` as a stop hook, and its commit-signing feedback costs context on every turn. In the cloud, `harnessup setup` and every Claude `session-start` replace that script's contents with a no-op, keeping the file and its executable bit because the cloud registers the hook outside harnessup's reach. A missing script is left missing. Failures are reported, never fatal.
+Claude cloud runs `~/.claude/stop-hook-git-check.sh` as a stop hook, and its commit-signing feedback costs context on every turn. harnessup can replace that script's contents with a no-op, keeping the file and its executable bit because the cloud registers the hook outside harnessup's reach. A missing script is left missing. Silencing is opt-in, in either of two ways.
+
+In a repository with a manifest, set the key in the `[claude]` table:
+
+```toml
+[claude]
+silence_stop_hook = true
+```
+
+In the cloud, `harnessup setup` and every Claude `session-start` then silence the hook, so the manifest form re-applies if the cloud rewrites `~/.claude` after setup. Failures are reported, never fatal.
+
+Without a manifest, call the command from the cloud environment's setup script:
+
+```sh
+uv tool install git+https://github.com/AbysmalBiscuit/harnessup
+harnessup silence-stop-hook
+```
+
+The command runs only when called, inside or outside the cloud. It prints problems as `harnessup: ...` lines and exits non-zero when it cannot overwrite an existing script.
 
 ## Repository manifest
 
@@ -104,6 +122,7 @@ recovery = "recovery.md"
 | `home_file.source` | string | yes | File relative to `.agents/harnessup/` |
 | `home_file.target` | string | yes | Destination relative to the home directory; placed only by `harnessup setup` |
 | `claude.settings_local` | table | no | Recursively merged into `.claude/settings.local.json`; lists gain missing entries and manifest scalars win |
+| `claude.silence_stop_hook` | boolean | no | `true` turns the Claude cloud commit-signing stop hook into a no-op during setup and Claude session start in the cloud; defaults to `false` |
 | `context.startup` | string | no | File relative to `.agents/harnessup/`, printed for startup and clear |
 | `context.recovery` | string | no | File relative to `.agents/harnessup/`, printed for resume, compact and fork |
 | `context.task_tools` | boolean | no | `false` drops the task-tool reminder from startup context, for a repository whose startup context says how to track work; defaults to `true` |
@@ -114,7 +133,7 @@ Unknown keys, unsupported schemas, missing required values, wrong types, undecla
 
 Put each cloud-only skill in `.agents/harnessup/skills/<name>/SKILL.md`. No manifest entry is needed. harnessup links the skill into both `.claude/skills/` and `.agents/skills/`, resolving and deduplicating shared directories. It skips tracked skills and foreign files or directories instead of shadowing them.
 
-The bundled SessionStart hooks invoke `harnessup session-start --harness claude` or `--harness codex`. They do nothing unless `CLOUD_AGENT=true` or `CLAUDE_CODE_REMOTE=true`. Apart from silencing the Claude cloud stop hook, they stay silent in repositories without a manifest. Startup and clear place files, merge Claude's local settings, link skills, and print startup context and, unless `context.task_tools = false`, a task-tool reminder. Resume, compact and fork print recovery context. All sources report problems without failing the hook. Session start makes no network calls and installs nothing.
+The bundled SessionStart hooks invoke `harnessup session-start --harness claude` or `--harness codex`. They do nothing unless `CLOUD_AGENT=true` or `CLAUDE_CODE_REMOTE=true`, and stay silent in repositories without a manifest. Startup and clear place files, merge Claude's local settings, link skills, and print startup context and, unless `context.task_tools = false`, a task-tool reminder. Resume, compact and fork print recovery context. All sources report problems without failing the hook. Session start makes no network calls and installs nothing.
 
 File targets are written only when absent or listed in harnessup's current `.git/info/exclude` block. Tracked files and existing foreign targets are skipped. The generated exclude block also covers local settings and skill links; lines outside it survive. Removing a file entry leaves the old target in place and removes its exclude entry. Existing Claude settings keys survive the recursive merge, and invalid JSON is left untouched and reported.
 

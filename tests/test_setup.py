@@ -450,11 +450,19 @@ def test_setup_reports_missing_home_file_source(setup_cli, repo, write_manifest)
     assert home_file_items(report) == [("failed", ".config/devkit/config.toml")]
 
 
-@pytest.mark.parametrize(("env", "exit_code"), [({"CLOUD_AGENT": "true"}, 0), ({}, 2)])
-def test_setup_silences_stop_hook_only_in_cloud(
-    setup_cli, run_stop_hook, env, exit_code
+@pytest.mark.parametrize(
+    ("claude", "env", "exit_code"),
+    [
+        ("silence_stop_hook = true", {"CLOUD_AGENT": "true"}, 0),
+        ("silence_stop_hook = true", {}, 2),
+        ("", {"CLOUD_AGENT": "true"}, 2),
+    ],
+)
+def test_setup_silences_stop_hook_on_opt_in_in_cloud(
+    setup_cli, repo, write_manifest, run_stop_hook, claude, env, exit_code
 ):
     invoke, _, _ = setup_cli
+    write_manifest(repo, f"schema = 1\n[claude]\n{claude}\n")
     invoke(env=env)
     assert run_stop_hook()[0] == exit_code
 

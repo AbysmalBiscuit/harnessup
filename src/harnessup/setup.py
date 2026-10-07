@@ -210,14 +210,7 @@ def _place_home_file(root: Path, entry: FileEntry) -> Item:
 
 
 def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
-    own: list[Item] = (
-        [
-            Item("self", "stop hook", "claude", "failed", problem)
-            for problem in silence_stop_hook()
-        ]
-        if in_cloud(os.environ)
-        else []
-    )
+    own: list[Item] = []
     reports: list[RepoReport] = []
     for harness, cli in CLIS.items():
         if cli.available():
@@ -251,6 +244,11 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
             continue
         if manifest is None:
             continue
+        if manifest.silence_stop_hook and in_cloud(os.environ):
+            report.items.extend(
+                Item("stop_hook", "silence", "claude", "failed", problem)
+                for problem in silence_stop_hook()
+            )
         for marketplace in manifest.marketplaces:
             source = (
                 str((root / marketplace.source).resolve())
