@@ -13,6 +13,10 @@ harnessup setup
 
 The git install follows `main`; append `@vX.Y.Z` to pin a release. Setup discovers the manifest in its working directory, or in its direct children. Use repeated `--repo PATH` arguments to select repositories explicitly. It registers the bundled harnessup plugin with each available harness, then processes each repository's manifest. A missing harness is skipped. Failed items are recorded, later items still run, and setup exits successfully so a cloud session can start and report the problems.
 
+## Claude cloud stop hook
+
+Claude cloud runs `~/.claude/stop-hook-git-check.sh` as a stop hook, and its commit-signing feedback costs context on every turn. In the cloud, `harnessup setup` and every Claude `session-start` replace that script's contents with a no-op, keeping the file and its executable bit because the cloud registers the hook outside harnessup's reach. A missing script is left missing. Failures are reported, never fatal.
+
 ## Repository manifest
 
 Commit `.agents/harnessup/manifest.toml` and the content it references:
@@ -110,7 +114,7 @@ Unknown keys, unsupported schemas, missing required values, wrong types, undecla
 
 Put each cloud-only skill in `.agents/harnessup/skills/<name>/SKILL.md`. No manifest entry is needed. harnessup links the skill into both `.claude/skills/` and `.agents/skills/`, resolving and deduplicating shared directories. It skips tracked skills and foreign files or directories instead of shadowing them.
 
-The bundled SessionStart hooks invoke `harnessup session-start --harness claude` or `--harness codex`. They do nothing unless `CLOUD_AGENT=true` or `CLAUDE_CODE_REMOTE=true`, and stay silent in repositories without a manifest. Startup and clear place files, merge Claude's local settings, link skills, and print startup context and, unless `context.task_tools = false`, a task-tool reminder. Resume, compact and fork print recovery context. All sources report problems without failing the hook. Session start makes no network calls and installs nothing.
+The bundled SessionStart hooks invoke `harnessup session-start --harness claude` or `--harness codex`. They do nothing unless `CLOUD_AGENT=true` or `CLAUDE_CODE_REMOTE=true`. Apart from silencing the Claude cloud stop hook, they stay silent in repositories without a manifest. Startup and clear place files, merge Claude's local settings, link skills, and print startup context and, unless `context.task_tools = false`, a task-tool reminder. Resume, compact and fork print recovery context. All sources report problems without failing the hook. Session start makes no network calls and installs nothing.
 
 File targets are written only when absent or listed in harnessup's current `.git/info/exclude` block. Tracked files and existing foreign targets are skipped. The generated exclude block also covers local settings and skill links; lines outside it survive. Removing a file entry leaves the old target in place and removes its exclude entry. Existing Claude settings keys survive the recursive merge, and invalid JSON is left untouched and reported.
 

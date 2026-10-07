@@ -1,3 +1,4 @@
+import os
 from collections.abc import Mapping, Sequence
 from filecmp import cmp, cmpfiles, dircmp
 from importlib.metadata import version
@@ -17,7 +18,7 @@ from harnessup.manifest import (
     source_kind,
 )
 from harnessup.proc import Deadline, run
-from harnessup.session import prepare
+from harnessup.session import in_cloud, prepare, silence_stop_hook
 from harnessup.state import Item, RepoReport, Status, state_dir, write_report
 
 DEADLINE_S = 200.0
@@ -209,7 +210,14 @@ def _place_home_file(root: Path, entry: FileEntry) -> Item:
 
 
 def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
-    own: list[Item] = []
+    own: list[Item] = (
+        [
+            Item("self", "stop hook", "claude", "failed", problem)
+            for problem in silence_stop_hook()
+        ]
+        if in_cloud(os.environ)
+        else []
+    )
     reports: list[RepoReport] = []
     for harness, cli in CLIS.items():
         if cli.available():

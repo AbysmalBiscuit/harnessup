@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 
@@ -355,3 +356,46 @@ def test_generated_skill_links_are_ignored_literally(session_cli, repo):
             == 1
         )
     assert "skipped" not in session_cli("clear").stdout
+
+
+def session_start_without_manifest(run_cli, repo, harness="claude", env=None):
+    return run_cli(
+        "session-start",
+        "--harness",
+        harness,
+        cwd=repo,
+        env={"CLAUDE_CODE_REMOTE": "true"} if env is None else env,
+    )
+
+
+def test_claude_cloud_session_silences_stop_hook(run_cli, repo, run_stop_hook):
+    result = session_start_without_manifest(run_cli, repo)
+    assert result.returncode == 0 and result.stdout == ""
+    assert run_stop_hook() == (0, "", "")
+
+
+@pytest.mark.parametrize(
+    ("harness", "env"),
+    [("codex", {"CLAUDE_CODE_REMOTE": "true"}), ("claude", {})],
+)
+def test_stop_hook_untouched_outside_claude_cloud(
+    run_cli, repo, run_stop_hook, harness, env
+):
+    session_start_without_manifest(run_cli, repo, harness, env)
+    assert run_stop_hook()[0] == 2
+
+
+def test_missing_stop_hook_not_created(run_cli, repo, tmp_path):
+    result = session_start_without_manifest(run_cli, repo)
+    assert result.returncode == 0 and result.stdout == ""
+    assert not (tmp_path / "home/.claude/stop-hook-git-check.sh").exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+def test_unwritable_stop_hook_reported(run_cli, repo, stop_hook):
+    stop_hook.chmod(0o555)
+    result = session_start_without_manifest(run_cli, repo)
+    assert result.returncode == 0
+    assert result.stdout.startswith(
+        f"harnessup: could not silence stop hook {stop_hook}:"
+    )

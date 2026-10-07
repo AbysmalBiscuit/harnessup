@@ -15,10 +15,24 @@ from harnessup.workspace import (
 )
 
 STARTUP_SOURCES = frozenset({"startup", "clear"})
+SILENT_STOP_HOOK = "#!/bin/sh\nexit 0\n"
 
 
 def in_cloud(env: Mapping[str, str]) -> bool:
     return env.get("CLOUD_AGENT") == "true" or env.get("CLAUDE_CODE_REMOTE") == "true"
+
+
+def silence_stop_hook() -> list[str]:
+    """Turn Claude cloud's every-turn commit-signing stop hook into a no-op."""
+    # The cloud launcher registers this hook, so the script must stay in place:
+    # a registered hook whose script is missing errors on every turn.
+    path = Path.home() / ".claude/stop-hook-git-check.sh"
+    try:
+        if path.is_file() and path.read_text() != SILENT_STOP_HOOK:
+            path.write_text(SILENT_STOP_HOOK)
+    except (OSError, UnicodeDecodeError) as error:
+        return [f"could not silence stop hook {path}: {error}"]
+    return []
 
 
 def repo_root(payload_cwd: Path, env: Mapping[str, str]) -> Path:
@@ -41,11 +55,20 @@ def prepare(root: Path, manifest: Manifest) -> Changes:
     return changes
 
 
+def render(parts: list[str], problems: list[str]) -> str:
+    return "\n\n".join(
+        part
+        for part in [*parts, "\n".join(f"harnessup: {text}" for text in problems)]
+        if part
+    )
+
+
 def session_start(
     harness: Harness, payload: Mapping[str, object], env: Mapping[str, str]
 ) -> str:
     if not in_cloud(env):
         return ""
+    problems = silence_stop_hook() if harness == "claude" else []
     cwd = payload.get("cwd")
     root = repo_root(Path(cwd) if isinstance(cwd, str) else Path.cwd(), env)
     source = payload.get("source", "startup")
@@ -54,17 +77,13 @@ def session_start(
     try:
         manifest = load(root)
     except ManifestError as error:
-        return "\n\n".join(
-            part
-            for part in [
-                cli.task_line if startup else "",
-                f"harnessup: manifest error: {error}",
-            ]
-            if part
+        return render(
+            [cli.task_line if startup else ""], [*problems, f"manifest error: {error}"]
         )
     if manifest is None:
-        return ""
-    problems = prepare(root, manifest).problems if startup else []
+        return render([], problems)
+    if startup:
+        problems.extend(prepare(root, manifest).problems)
     context_name = manifest.startup if startup else manifest.recovery
     context = ""
     if context_name:
@@ -101,12 +120,6 @@ def session_start(
                     problems.append(
                         f"{plugin.id} not installed; setup reruns when the environment's setup script changes or its cache expires"
                     )
-    return "\n\n".join(
-        part
-        for part in [
-            context,
-            cli.task_line if startup and manifest.task_tools else "",
-            "\n".join(f"harnessup: {text}" for text in problems),
-        ]
-        if part
+    return render(
+        [context, cli.task_line if startup and manifest.task_tools else ""], problems
     )

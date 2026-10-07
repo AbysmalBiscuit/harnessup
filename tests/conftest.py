@@ -67,6 +67,28 @@ def repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def stop_hook(tmp_path: Path) -> Path:
+    path = tmp_path / "home/.claude/stop-hook-git-check.sh"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "#!/bin/sh\n"
+        "echo \"There are commit(s) on branch 'main' that GitHub will show as Unverified\" >&2\n"
+        "exit 2\n"
+    )
+    path.chmod(0o755)
+    return path
+
+
+@pytest.fixture
+def run_stop_hook(stop_hook: Path) -> Callable[[], tuple[int, str, str]]:
+    def run() -> tuple[int, str, str]:
+        hook = subprocess.run([stop_hook], capture_output=True, text=True, check=False)
+        return hook.returncode, hook.stdout, hook.stderr
+
+    return run
+
+
+@pytest.fixture
 def write_manifest() -> Callable[[Path, str], Path]:
     def write(root: Path, text: str) -> Path:
         path = root / ".agents/harnessup/manifest.toml"
