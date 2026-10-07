@@ -13,6 +13,28 @@ harnessup setup
 
 The git install follows `main`; append `@vX.Y.Z` to pin a release. Setup discovers the manifest in its working directory, or in its direct children. Use repeated `--repo PATH` arguments to select repositories explicitly. It registers the bundled harnessup plugin with each available harness, then processes each repository's manifest. A missing harness is skipped. Failed items are recorded, later items still run, and setup exits successfully so a cloud session can start and report the problems.
 
+## Claude cloud stop hook
+
+Claude cloud runs `~/.claude/stop-hook-git-check.sh` as a stop hook, and its commit-signing feedback costs context on every turn. harnessup can replace that script's contents with a no-op, keeping the file and its executable bit because the cloud registers the hook outside harnessup's reach. A missing script is left missing. Silencing is opt-in, in either of two ways.
+
+In a repository with a manifest, set the key in the `[claude]` table:
+
+```toml
+[claude]
+silence_stop_hook = true
+```
+
+In the cloud, `harnessup setup` and every Claude `session-start` then silence the hook, so the manifest form re-applies if the cloud rewrites `~/.claude` after setup. Failures are reported, never fatal.
+
+Without a manifest, call the command from the cloud environment's setup script:
+
+```sh
+uv tool install git+https://github.com/AbysmalBiscuit/harnessup
+harnessup silence-stop-hook
+```
+
+The command runs only when called, inside or outside the cloud. It prints problems as `harnessup: ...` lines and exits non-zero when it cannot overwrite an existing script.
+
 ## Repository manifest
 
 Commit `.agents/harnessup/manifest.toml` and the content it references:
@@ -100,6 +122,7 @@ recovery = "recovery.md"
 | `home_file.source` | string | yes | File relative to `.agents/harnessup/` |
 | `home_file.target` | string | yes | Destination relative to the home directory; placed only by `harnessup setup` |
 | `claude.settings_local` | table | no | Recursively merged into `.claude/settings.local.json`; lists gain missing entries and manifest scalars win |
+| `claude.silence_stop_hook` | boolean | no | `true` turns the Claude cloud commit-signing stop hook into a no-op during setup and Claude session start in the cloud; defaults to `false` |
 | `context.startup` | string | no | File relative to `.agents/harnessup/`, printed for startup and clear |
 | `context.recovery` | string | no | File relative to `.agents/harnessup/`, printed for resume, compact and fork |
 | `context.task_tools` | boolean | no | `false` drops the task-tool reminder from startup context, for a repository whose startup context says how to track work; defaults to `true` |

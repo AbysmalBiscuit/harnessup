@@ -60,6 +60,7 @@ class Manifest:
     recovery: str | None
     task_tools: bool = True
     home_files: tuple[FileEntry, ...] = ()
+    silence_stop_hook: bool = False
 
 
 def source_kind(source: str) -> Literal["path", "git", "github"]:
@@ -195,12 +196,17 @@ def parse(data: dict[str, object]) -> Manifest:
     )
     files = _files(data, "file")
     home_files = _files(data, "home_file")
-    claude = _table(data.get("claude", {}), "claude", {"settings_local"})
+    claude = _table(
+        data.get("claude", {}), "claude", {"settings_local", "silence_stop_hook"}
+    )
     settings = (
         _table(claude["settings_local"], "claude.settings_local")
         if "settings_local" in claude
         else None
     )
+    silence_stop_hook = claude.get("silence_stop_hook", False)
+    if not isinstance(silence_stop_hook, bool):
+        raise ManifestError("claude.silence_stop_hook: expected a boolean")
     context = _table(
         data.get("context", {}), "context", {"startup", "recovery", "task_tools"}
     )
@@ -225,6 +231,7 @@ def parse(data: dict[str, object]) -> Manifest:
         recovery,
         task_tools,
         home_files,
+        silence_stop_hook,
     )
 
 

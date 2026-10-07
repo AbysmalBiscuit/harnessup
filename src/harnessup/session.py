@@ -15,10 +15,24 @@ from harnessup.workspace import (
 )
 
 STARTUP_SOURCES = frozenset({"startup", "clear"})
+SILENT_STOP_HOOK = "#!/bin/sh\nexit 0\n"
 
 
 def in_cloud(env: Mapping[str, str]) -> bool:
     return env.get("CLOUD_AGENT") == "true" or env.get("CLAUDE_CODE_REMOTE") == "true"
+
+
+def silence_stop_hook() -> list[str]:
+    """Turn Claude cloud's every-turn commit-signing stop hook into a no-op."""
+    # The cloud launcher registers this hook, so the script must stay in place:
+    # a registered hook whose script is missing errors on every turn.
+    path = Path.home() / ".claude/stop-hook-git-check.sh"
+    try:
+        if path.is_file() and path.read_text() != SILENT_STOP_HOOK:
+            path.write_text(SILENT_STOP_HOOK)
+    except (OSError, UnicodeDecodeError) as error:
+        return [f"could not silence stop hook {path}: {error}"]
+    return []
 
 
 def repo_root(payload_cwd: Path, env: Mapping[str, str]) -> Path:
@@ -64,7 +78,13 @@ def session_start(
         )
     if manifest is None:
         return ""
-    problems = prepare(root, manifest).problems if startup else []
+    problems = (
+        silence_stop_hook()
+        if harness == "claude" and manifest.silence_stop_hook
+        else []
+    )
+    if startup:
+        problems.extend(prepare(root, manifest).problems)
     context_name = manifest.startup if startup else manifest.recovery
     context = ""
     if context_name:

@@ -29,8 +29,8 @@ bootstrap = ["hooks/bootstrap-binaries", "claude-code"]
     )
     stub("claude", list_json=[{"id": "devkit@devkit", "installPath": str(plugin)}])
 
-    def invoke(*args, cwd=None):
-        result = run_cli("setup", *args, cwd=cwd or repo)
+    def invoke(*args, cwd=None, env=None):
+        result = run_cli("setup", *args, cwd=cwd or repo, env=env)
         assert result.returncode == 0, result.stderr
         return result, json.loads((state_dir / "setup.json").read_text())
 
@@ -448,6 +448,23 @@ def test_setup_reports_missing_home_file_source(setup_cli, repo, write_manifest)
     write_manifest(repo, HOME_FILE_MANIFEST)
     _, report = invoke()
     assert home_file_items(report) == [("failed", ".config/devkit/config.toml")]
+
+
+@pytest.mark.parametrize(
+    ("claude", "env", "exit_code"),
+    [
+        ("silence_stop_hook = true", {"CLOUD_AGENT": "true"}, 0),
+        ("silence_stop_hook = true", {}, 2),
+        ("", {"CLOUD_AGENT": "true"}, 2),
+    ],
+)
+def test_setup_silences_stop_hook_on_opt_in_in_cloud(
+    setup_cli, repo, write_manifest, run_stop_hook, claude, env, exit_code
+):
+    invoke, _, _ = setup_cli
+    write_manifest(repo, f"schema = 1\n[claude]\n{claude}\n")
+    invoke(env=env)
+    assert run_stop_hook()[0] == exit_code
 
 
 def test_discovers_children_of_cwd(setup_cli, tmp_path, write_manifest):

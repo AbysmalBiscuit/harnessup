@@ -1,3 +1,4 @@
+import os
 from collections.abc import Mapping, Sequence
 from filecmp import cmp, cmpfiles, dircmp
 from importlib.metadata import version
@@ -17,7 +18,7 @@ from harnessup.manifest import (
     source_kind,
 )
 from harnessup.proc import Deadline, run
-from harnessup.session import prepare
+from harnessup.session import in_cloud, prepare, silence_stop_hook
 from harnessup.state import Item, RepoReport, Status, state_dir, write_report
 
 DEADLINE_S = 200.0
@@ -243,6 +244,11 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
             continue
         if manifest is None:
             continue
+        if manifest.silence_stop_hook and in_cloud(os.environ):
+            report.items.extend(
+                Item("stop_hook", "silence", "claude", "failed", problem)
+                for problem in silence_stop_hook()
+            )
         for marketplace in manifest.marketplaces:
             source = (
                 str((root / marketplace.source).resolve())
