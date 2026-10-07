@@ -364,7 +364,7 @@ def session_start_without_manifest(run_cli, repo, harness="claude", env=None):
         "--harness",
         harness,
         cwd=repo,
-        env={"CLAUDE_CODE_REMOTE": "true"} if env is None else env,
+        env={"CLAUDE_CODE_REMOTE": "true", **(env or {})},
     )
 
 
@@ -376,7 +376,7 @@ def test_claude_cloud_session_silences_stop_hook(run_cli, repo, run_stop_hook):
 
 @pytest.mark.parametrize(
     ("harness", "env"),
-    [("codex", {"CLAUDE_CODE_REMOTE": "true"}), ("claude", {})],
+    [("codex", {}), ("claude", {"CLAUDE_CODE_REMOTE": "false"})],
 )
 def test_stop_hook_untouched_outside_claude_cloud(
     run_cli, repo, run_stop_hook, harness, env
