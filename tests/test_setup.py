@@ -333,6 +333,34 @@ def test_bootstrap_keeps_nested_directory_links_as_links(
     assert home.readlink() == tmp_path
 
 
+def test_failed_bootstrap_leaves_nested_link_targets_alone(
+    setup_cli, state_dir, tmp_path
+):
+    invoke, plugin, _ = setup_cli
+    target = tmp_path / "checkout"
+    target.mkdir()
+    trusted = state_dir.parent / "mise/trusted-configs"
+    trusted.mkdir(parents=True)
+    link = trusted / "checkout"
+    link.symlink_to(target, target_is_directory=True)
+    bootstrap = plugin / "hooks/bootstrap-binaries"
+    bootstrap.write_text(
+        bootstrap.read_text()
+        + 'mkdir -p "$XDG_STATE_HOME/mise/trusted-configs/checkout"\n'
+        + 'printf "x" > "$XDG_STATE_HOME/mise/trusted-configs/checkout/written"\n'
+        + "exit 1\n"
+    )
+
+    _, report = invoke()
+
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == "failed"
+    assert list(target.iterdir()) == []
+    assert link.readlink() == target
+
+
 def test_rerun_keeps_links_to_a_linked_manifest_skill(setup_cli, repo):
     invoke, _, _ = setup_cli
     (repo / "skills/merge").mkdir(parents=True)
