@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.4](https://github.com/AbysmalBiscuit/harnessup/compare/v0.1.3...v0.1.4) (2026-10-09)
+
+
+### Features
+
+* add HARNESSUP_SESSION and --install-timeout ([#12](https://github.com/AbysmalBiscuit/harnessup/issues/12)) ([4323d5e](https://github.com/AbysmalBiscuit/harnessup/commit/4323d5e4a0f510ce379031befce699ec43bff455))
+* add opt-in silencing of the claude stop hook ([#10](https://github.com/AbysmalBiscuit/harnessup/issues/10)) ([c7353b4](https://github.com/AbysmalBiscuit/harnessup/commit/c7353b4e089e721c7d7352037c18e40eb51bdc75))
+* place home-directory files from setup ([#8](https://github.com/AbysmalBiscuit/harnessup/issues/8)) ([142e25d](https://github.com/AbysmalBiscuit/harnessup/commit/142e25d37d1a3e60895bd37242979a1144452f84))
+
+
+### Bug Fixes
+
+* keep state dir links and own linked skill links on rerun ([#11](https://github.com/AbysmalBiscuit/harnessup/issues/11)) ([3cda2c3](https://github.com/AbysmalBiscuit/harnessup/commit/3cda2c3ddd57bb528c26a77f075a2939d4cd2ffa))
+
 ## [0.1.3](https://github.com/AbysmalBiscuit/harnessup/compare/v0.1.2...v0.1.3) (2026-10-06)
 
 
