@@ -22,6 +22,11 @@ def in_cloud(env: Mapping[str, str]) -> bool:
     return env.get("CLOUD_AGENT") == "true" or env.get("CLAUDE_CODE_REMOTE") == "true"
 
 
+def session_enabled(env: Mapping[str, str]) -> bool:
+    """Session start acts in the cloud, and wherever HARNESSUP_SESSION asks for it."""
+    return in_cloud(env) or env.get("HARNESSUP_SESSION") == "true"
+
+
 def silence_stop_hook() -> list[str]:
     """Turn Claude cloud's every-turn commit-signing stop hook into a no-op."""
     # The cloud launcher registers this hook, so the script must stay in place:
@@ -58,7 +63,7 @@ def prepare(root: Path, manifest: Manifest) -> Changes:
 def session_start(
     harness: Harness, payload: Mapping[str, object], env: Mapping[str, str]
 ) -> str:
-    if not in_cloud(env):
+    if not session_enabled(env):
         return ""
     cwd = payload.get("cwd")
     root = repo_root(Path(cwd) if isinstance(cwd, str) else Path.cwd(), env)
@@ -80,7 +85,7 @@ def session_start(
         return ""
     problems = (
         silence_stop_hook()
-        if harness == "claude" and manifest.silence_stop_hook
+        if harness == "claude" and manifest.silence_stop_hook and in_cloud(env)
         else []
     )
     if startup:

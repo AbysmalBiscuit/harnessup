@@ -9,7 +9,7 @@ from pathlib import Path
 from harnessup import commit_patch
 from harnessup.proc import Deadline
 from harnessup.session import session_start, silence_stop_hook
-from harnessup.setup import DEADLINE_S, setup
+from harnessup.setup import DEADLINE_S, INSTALL_TIMEOUT_S, setup
 from harnessup.state import Item, write_report
 
 
@@ -23,6 +23,12 @@ def main(argv: list[str] | None = None) -> int:
     setup_parser = commands.add_parser("setup")
     setup_parser.add_argument("--repo", type=Path, action="append", default=[])
     setup_parser.add_argument("--deadline", type=float, default=DEADLINE_S)
+    setup_parser.add_argument(
+        "--install-timeout",
+        type=float,
+        default=INSTALL_TIMEOUT_S,
+        help="seconds each install or bootstrap may take",
+    )
     session = commands.add_parser("session-start")
     session.add_argument("--harness", choices=["claude", "codex"], required=True)
     commit_patch.add_arguments(commands.add_parser("commit-patch"))
@@ -41,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.repo,
                 Path.cwd(),
                 Deadline(args.deadline - (time.monotonic() - started)),
+                args.install_timeout,
             )
         except Exception as error:  # noqa: BLE001
             try:

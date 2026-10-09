@@ -77,6 +77,12 @@ def test_cloud_agent_env_also_opens_gate(session_cli):
     ).stdout.startswith("Read AGENTS.local.md")
 
 
+def test_harnessup_session_env_opens_gate_outside_the_cloud(session_cli):
+    assert session_cli(
+        env={"CLAUDE_CODE_REMOTE": "false", "HARNESSUP_SESSION": "true"}
+    ).stdout.startswith("Read AGENTS.local.md")
+
+
 @pytest.mark.parametrize("source", ["resume", "compact", "fork"])
 def test_recovery_sources_print_recovery_only(session_cli, repo, source):
     result = session_cli(source)
@@ -390,6 +396,11 @@ def test_manifest_opt_in_silences_stop_hook(
         ("silence_stop_hook = false", "claude", {}),
         ("silence_stop_hook = true", "codex", {}),
         ("silence_stop_hook = true", "claude", {"CLAUDE_CODE_REMOTE": "false"}),
+        (
+            "silence_stop_hook = true",
+            "claude",
+            {"CLAUDE_CODE_REMOTE": "false", "HARNESSUP_SESSION": "true"},
+        ),
     ],
 )
 def test_stop_hook_untouched_without_opt_in(

@@ -382,6 +382,23 @@ target = "AGENTS.local.md"
     assert (repo / "AGENTS.local.md").read_text() == "rules"
 
 
+def test_install_timeout_caps_each_install(setup_cli, repo, write_manifest):
+    invoke, _, _ = setup_cli
+    write_manifest(
+        repo,
+        """schema = 1
+[[tool]]
+name = "slow"
+check = "exit 1"
+install = "sleep 3 && touch slow-installed"
+""",
+    )
+    _, report = invoke("--install-timeout", "1")
+    [item] = report["repos"][0]["items"]
+    assert item["status"] == "failed" and "timed out" in item["detail"]
+    assert not (repo / "slow-installed").exists()
+
+
 def test_path_marketplace_is_absolute(setup_cli, repo, write_manifest, stub_calls):
     invoke, _, _ = setup_cli
     write_manifest(
