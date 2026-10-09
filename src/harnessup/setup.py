@@ -131,7 +131,11 @@ def _bootstrap(
     with TemporaryDirectory(prefix="harnessup-bootstrap-") as temporary:
         scratch_state = Path(temporary) / "state"
         state_links: dict[Path, tuple[Path, Path]] = {}
+        kept_links: dict[Path, Path] = {}
 
+        # A directory link below an app's own state dir, such as mise's trust
+        # records, can reach a checkout or the home that holds the state, so it
+        # stays a link instead of a copy of its target.
         def copy_state_links(directory: str, names: list[str]) -> list[str]:
             ignored = []
             for entry in names:
@@ -141,11 +145,16 @@ def _bootstrap(
                     state_links[destination] = (source, source.readlink())
                     if not source.exists():
                         ignored.append(entry)
+                    elif source.is_dir() and Path(directory) != real_state:
+                        kept_links[destination] = source.readlink()
+                        ignored.append(entry)
             return ignored
 
         try:
             if real_state.exists():
                 copytree(real_state, scratch_state, ignore=copy_state_links)
+                for destination, target in kept_links.items():
+                    destination.symlink_to(target, target_is_directory=True)
             else:
                 scratch_state.mkdir()
         except OSError as error:

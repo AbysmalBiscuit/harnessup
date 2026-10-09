@@ -314,6 +314,25 @@ def test_bootstrap_preserves_untouched_live_links(setup_cli, state_dir, tmp_path
         assert (linked_directory / "data").read_text() == "later"
 
 
+def test_bootstrap_keeps_nested_directory_links_as_links(
+    setup_cli, state_dir, tmp_path
+):
+    invoke, _, _ = setup_cli
+    trusted = state_dir.parent / "mise/trusted-configs"
+    trusted.mkdir(parents=True)
+    home = trusted / "home"
+    home.symlink_to(tmp_path, target_is_directory=True)
+
+    _, report = invoke()
+
+    item = next(
+        item for item in report["repos"][0]["items"] if item["kind"] == "bootstrap"
+    )
+    assert item["status"] == "ok", item["detail"]
+    assert home.is_symlink()
+    assert home.readlink() == tmp_path
+
+
 def test_bootstrap_skipped_when_install_failed(setup_cli, stub):
     invoke, _, log = setup_cli
     stub("claude", fail=["devkit@devkit"])
