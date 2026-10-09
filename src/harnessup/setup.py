@@ -126,6 +126,7 @@ def _bootstrap(
     argv: Sequence[str],
     cwd: Path,
     deadline: Deadline,
+    install_timeout: float,
 ) -> Item:
     real_state = state_dir().parent.resolve()
     with TemporaryDirectory(prefix="harnessup-bootstrap-") as temporary:
@@ -163,6 +164,7 @@ def _bootstrap(
             argv,
             cwd,
             deadline,
+            install_timeout,
             env={"XDG_STATE_HOME": str(scratch_state)},
         )
         if item.status == "ok":
@@ -209,7 +211,12 @@ def _place_home_file(root: Path, entry: FileEntry) -> Item:
     return item("ok", "placed")
 
 
-def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
+def setup(
+    repos: Sequence[Path],
+    cwd: Path,
+    deadline: Deadline,
+    install_timeout: float = INSTALL_TIMEOUT_S,
+) -> Path:
     own: list[Item] = []
     reports: list[RepoReport] = []
     for harness, cli in CLIS.items():
@@ -222,6 +229,7 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
                     cli.marketplace_add(str(MARKETPLACE_DIR)),
                     cwd,
                     deadline,
+                    install_timeout,
                 )
             )
             own.append(
@@ -232,6 +240,7 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
                     cli.plugin_install("harnessup@harnessup"),
                     cwd,
                     deadline,
+                    install_timeout,
                 )
             )
     for root in discover(repos, cwd):
@@ -264,6 +273,7 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
                         CLIS[harness].marketplace_add(source),
                         root,
                         deadline,
+                        install_timeout,
                     )
                 )
         installed_ok: dict[str, list[Harness]] = {}
@@ -276,6 +286,7 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
                     CLIS[harness].plugin_install(plugin.id),
                     root,
                     deadline,
+                    install_timeout,
                 )
                 report.items.append(item)
                 if item.status == "ok":
@@ -329,9 +340,13 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
                 )
                 continue
             argv = [str(plugin_root / plugin.bootstrap[0]), *plugin.bootstrap[1:]]
-            item = _bootstrap(plugin.id, harness, argv, plugin_root, deadline)
+            item = _bootstrap(
+                plugin.id, harness, argv, plugin_root, deadline, install_timeout
+            )
             if item.status == "failed":
-                item = _bootstrap(plugin.id, harness, argv, plugin_root, deadline)
+                item = _bootstrap(
+                    plugin.id, harness, argv, plugin_root, deadline, install_timeout
+                )
             report.items.append(item)
         for tool in manifest.tools:
             item = _execute(
@@ -340,7 +355,15 @@ def setup(repos: Sequence[Path], cwd: Path, deadline: Deadline) -> Path:
             if item.status == "ok":
                 item.detail = "already installed"
             elif item.status == "failed":
-                item = _execute("tool", tool.name, None, tool.install, root, deadline)
+                item = _execute(
+                    "tool",
+                    tool.name,
+                    None,
+                    tool.install,
+                    root,
+                    deadline,
+                    install_timeout,
+                )
             report.items.append(item)
         report.items.extend(
             _place_home_file(root, entry) for entry in manifest.home_files

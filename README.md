@@ -143,7 +143,7 @@ Setup prepares these files before the first session. Changes to settings during 
 
 ## Setup report
 
-Setup writes `$XDG_STATE_HOME/harnessup/setup.json`, defaulting to `~/.local/state/harnessup/setup.json`. It records the package version, finish time, own plugin registration, repository roots, manifest errors and each item's kind, name, harness, status and command output. Status is `ok`, `failed` or `skipped`. Items skipped by the shared setup deadline carry `setup deadline`; workspace preparation still runs after that deadline. `--deadline SECONDS` overrides the deadline for controlled runs.
+Setup writes `$XDG_STATE_HOME/harnessup/setup.json`, defaulting to `~/.local/state/harnessup/setup.json`. It records the package version, finish time, own plugin registration, repository roots, manifest errors and each item's kind, name, harness, status and command output. Status is `ok`, `failed` or `skipped`. Items skipped by the shared setup deadline carry `setup deadline`; workspace preparation still runs after that deadline. `--deadline SECONDS` overrides the deadline for controlled runs, and `--install-timeout SECONDS` the 120 s each install and bootstrap may take, for a cold first install outside the cloud's cache window.
 
 Session start reports failures and deadline skips for its repository, checks declared plugin binaries, and reports missing plugins on startup or clear. A corrupt or foreign setup report is ignored. It never reruns installation.
 
