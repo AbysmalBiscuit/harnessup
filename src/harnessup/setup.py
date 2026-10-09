@@ -132,7 +132,10 @@ def _bootstrap(
     with TemporaryDirectory(prefix="harnessup-bootstrap-") as temporary:
         scratch_state = Path(temporary) / "state"
         state_links: dict[Path, tuple[Path, Path]] = {}
+        hidden_links: set[Path] = set()
 
+        # Nested directory links (mise's trust records) can reach the home that
+        # holds the state, so bootstrap runs without them; promotion restores them.
         def copy_state_links(directory: str, names: list[str]) -> list[str]:
             ignored = []
             for entry in names:
@@ -141,6 +144,9 @@ def _bootstrap(
                     destination = scratch_state / source.relative_to(real_state)
                     state_links[destination] = (source, source.readlink())
                     if not source.exists():
+                        ignored.append(entry)
+                    elif source.is_dir() and Path(directory) != real_state:
+                        hidden_links.add(destination)
                         ignored.append(entry)
             return ignored
 
@@ -171,7 +177,7 @@ def _bootstrap(
             try:
                 # Restore links after execution so bootstrap writes stay isolated.
                 for path, (source, target) in reversed(state_links.items()):
-                    if source.exists():
+                    if source.exists() and path not in hidden_links:
                         if _same_state(source, path):
                             if path.is_dir() and not path.is_symlink():
                                 rmtree(path)

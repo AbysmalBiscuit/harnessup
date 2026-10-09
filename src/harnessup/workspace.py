@@ -170,8 +170,9 @@ def link_skills(root: Path) -> Changes:
                     f"skipped skill {source.name} in {directory}: tracked by git"
                 )
                 continue
-            if target.is_symlink() and target.resolve().is_relative_to(
-                source_dir.resolve()
+            if target.is_symlink() and (
+                target.resolve().is_relative_to(source_dir.resolve())
+                or target.resolve() == source.resolve()
             ):
                 target.unlink()
             elif target.exists() or target.is_symlink():
