@@ -396,6 +396,11 @@ def test_manifest_opt_in_silences_stop_hook(
         ("silence_stop_hook = false", "claude", {}),
         ("silence_stop_hook = true", "codex", {}),
         ("silence_stop_hook = true", "claude", {"CLAUDE_CODE_REMOTE": "false"}),
+        (
+            "silence_stop_hook = true",
+            "claude",
+            {"CLAUDE_CODE_REMOTE": "false", "HARNESSUP_SESSION": "true"},
+        ),
     ],
 )
 def test_stop_hook_untouched_without_opt_in(

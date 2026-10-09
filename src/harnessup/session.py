@@ -85,7 +85,7 @@ def session_start(
         return ""
     problems = (
         silence_stop_hook()
-        if harness == "claude" and manifest.silence_stop_hook
+        if harness == "claude" and manifest.silence_stop_hook and in_cloud(env)
         else []
     )
     if startup:
