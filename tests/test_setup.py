@@ -333,6 +333,25 @@ def test_bootstrap_keeps_nested_directory_links_as_links(
     assert home.readlink() == tmp_path
 
 
+def test_rerun_keeps_links_to_a_linked_manifest_skill(setup_cli, repo):
+    invoke, _, _ = setup_cli
+    (repo / "skills/merge").mkdir(parents=True)
+    (repo / "skills/merge/SKILL.md").write_text("merge rules")
+    (repo / ".agents/harnessup/skills").mkdir(parents=True)
+    (repo / ".agents/harnessup/skills/merge").symlink_to(
+        "../../../skills/merge", target_is_directory=True
+    )
+
+    invoke()
+    _, report = invoke()
+
+    failed = [
+        item for item in report["repos"][0]["items"] if item["status"] == "failed"
+    ]
+    assert failed == []
+    assert (repo / ".claude/skills/merge/SKILL.md").read_text() == "merge rules"
+
+
 def test_bootstrap_skipped_when_install_failed(setup_cli, stub):
     invoke, _, log = setup_cli
     stub("claude", fail=["devkit@devkit"])
